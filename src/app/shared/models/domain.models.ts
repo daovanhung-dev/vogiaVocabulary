@@ -114,6 +114,30 @@ export interface LexiconSearchRequest {
   targetLanguage: string;
 }
 
+export interface LexiconTranslation {
+  translation: string;
+  targetLanguageCode: string;
+  source: string;
+  confidence: number;
+}
+
+export interface LexiconExample {
+  sentence: string;
+  sentenceTranslation: string | null;
+  languageCode: string;
+  source: string;
+}
+
+export interface LexiconSense {
+  partOfSpeech: string | null;
+  definition: string;
+  definitionLanguageCode: string;
+  orderIndex: number;
+  source: string;
+  translations: LexiconTranslation[];
+  examples: LexiconExample[];
+}
+
 export interface LexiconSearchResult {
   term: string;
   normalizedTerm: string;
@@ -123,7 +147,7 @@ export interface LexiconSearchResult {
   audioUrl: string | null;
   source: string;
   sourceReference: string | null;
-  senses: Sense[];
+  senses: LexiconSense[];
 }
 
 export interface ImportResult {

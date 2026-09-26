@@ -12,6 +12,8 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Deck, LexiconSearchResult } from '../../shared/models/domain.models';
+import { DictionaryDetailsComponent } from '../../shared/components/dictionary-details.component';
+import { DictionaryViewEntry, fromLexiconResult } from '../../shared/utils/dictionary';
 import { DeckService } from '../decks/deck.service';
 import { SearchService } from './search.service';
 import { SupabaseService } from '../../core/supabase/supabase.service';
@@ -21,7 +23,7 @@ import { hasImportableDefinition, languageMismatchMessage } from '../../shared/u
 @Component({
   selector: 'gv-add-vocabulary',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, MatButtonModule, MatCardModule, MatCheckboxModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, DictionaryDetailsComponent, MatButtonModule, MatCardModule, MatCheckboxModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule],
   template: `
     <div class="page">
       <a mat-button routerLink="/decks"><mat-icon>arrow_back</mat-icon>All decks</a>
@@ -35,12 +37,15 @@ import { hasImportableDefinition, languageMismatchMessage } from '../../shared/u
 
       <section class="results panel" *ngIf="results().length || loading; else searchHint">
         <div class="results-header"><div><p class="eyebrow">Search results</p><h2>{{ results().length }} candidates</h2></div><mat-spinner *ngIf="loading" diameter="28"></mat-spinner></div>
-        <button class="result-row" type="button" *ngFor="let result of results()" (click)="toggle(result)" [class.selected]="isSelected(result)" [disabled]="!canImport(result)">
-          <mat-checkbox [checked]="isSelected(result)" [disabled]="!canImport(result)" (click)="$event.stopPropagation()" (change)="toggle(result)"></mat-checkbox>
-          <span class="result-main"><strong>{{ result.term }}</strong><small *ngIf="result.romanization">{{ result.romanization }}</small></span>
-          <span class="result-meaning">{{ meaning(result) }}</span>
-          <mat-icon>{{ isSelected(result) ? 'check_circle' : 'add_circle_outline' }}</mat-icon>
-        </button>
+        <ng-container *ngFor="let result of results()">
+          <div class="result-row" (click)="toggle(result)" (keydown.enter)="toggle(result)" [class.selected]="isSelected(result)" [class.disabled]="!canImport(result)" [attr.role]="canImport(result) ? 'button' : null" [attr.tabindex]="canImport(result) ? 0 : -1">
+            <mat-checkbox [checked]="isSelected(result)" [disabled]="!canImport(result)" (click)="$event.stopPropagation()" (change)="toggle(result)"></mat-checkbox>
+            <span class="result-main"><strong>{{ result.term }}</strong><small *ngIf="result.phonetic">{{ result.phonetic }}</small><small *ngIf="result.romanization">{{ result.romanization }}</small></span>
+            <span class="result-meaning"><small *ngIf="result.senses[0]?.partOfSpeech" class="result-pos">{{ result.senses[0].partOfSpeech }}</small>{{ meaning(result) }}</span>
+            <button mat-icon-button type="button" class="details-button" [attr.aria-label]="'View dictionary details for ' + result.term" [attr.aria-expanded]="isExpanded(result)" (click)="toggleDetails($event, result)"><mat-icon>{{ isExpanded(result) ? 'expand_less' : 'menu_book' }}</mat-icon></button>
+          </div>
+          <gv-dictionary-details *ngIf="isExpanded(result)" [entry]="dictionaryEntry(result)" [compact]="true"></gv-dictionary-details>
+        </ng-container>
         <div class="import-bar" *ngIf="selectedCount"><span>{{ selectedCount }} words ready to add</span><button mat-flat-button color="primary" (click)="importSelected()" [disabled]="importing || !selectedCount">{{ importing ? 'Adding…' : 'Add selected' }}</button></div>
       </section>
       <ng-template #searchHint><div class="panel empty-state"><mat-icon>travel_explore</mat-icon><h3>Search for your next word.</h3><p>Remote search is debounced and cached by the lexicon Edge Function.</p></div></ng-template>
@@ -55,13 +60,15 @@ import { hasImportableDefinition, languageMismatchMessage } from '../../shared/u
     .results { overflow: hidden; }
     .results-header { display: flex; align-items: center; justify-content: space-between; padding: 24px; border-bottom: 1px solid var(--line); }
     .results-header h2 { margin: 0; }
-    .result-row { display: grid; grid-template-columns: 40px minmax(130px, .65fr) minmax(0, 1fr) 30px; gap: 12px; align-items: center; width: 100%; padding: 16px 24px; border: 0; border-bottom: 1px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
+    .result-row { display: grid; grid-template-columns: 40px minmax(130px, .65fr) minmax(0, 1fr) 42px; gap: 12px; align-items: center; width: 100%; padding: 16px 24px; border-bottom: 1px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
     .result-row:hover, .result-row.selected { background: #f1f8fa; }
-    .result-row:disabled { background: #fafafa; color: var(--muted); cursor: not-allowed; }
-    .result-row:disabled .result-meaning { color: #9b6b00; }
+    .result-row.disabled { background: #fafafa; color: var(--muted); cursor: not-allowed; }
+    .result-row.disabled .result-meaning { color: #9b6b00; }
     .result-main { display: grid; gap: 3px; }
     .result-main small, .result-meaning { color: var(--muted); }
     .result-meaning { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-pos { display: inline-block; margin-right: 7px; color: var(--brand-strong); font-style: italic; font-weight: 700; }
+    .details-button { color: var(--brand-strong); }
     .import-bar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #fff8e5; color: #704f00; font-weight: 700; }
     @media (max-width: 700px) { .batch-row { align-items: stretch; flex-direction: column; } .batch-row button { margin: 0; } .result-row { grid-template-columns: 36px minmax(100px, 1fr) 30px; padding: 14px 16px; } .result-meaning { display: none; } }
   `],
@@ -71,6 +78,7 @@ export class AddVocabularyComponent implements OnInit {
   readonly batchControl = new FormControl('', { nonNullable: true });
   readonly results = signal<LexiconSearchResult[]>([]);
   readonly selected = signal<Record<string, LexiconSearchResult>>({});
+  readonly expanded = signal<Record<string, boolean>>({});
   readonly deck = signal<Deck | null>(null);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -101,6 +109,7 @@ export class AddVocabularyComponent implements OnInit {
         this.errorMessage = '';
         this.results.set([]);
         this.selected.set({});
+        this.expanded.set({});
         const mismatch = languageMismatchMessage(query, this.sourceCode, this.targetCode);
         if (mismatch) {
           this.errorMessage = mismatch;
@@ -124,6 +133,7 @@ export class AddVocabularyComponent implements OnInit {
     if (mismatch) {
       this.results.set([]);
       this.selected.set({});
+      this.expanded.set({});
       this.errorMessage = mismatch;
       return;
     }
@@ -131,6 +141,7 @@ export class AddVocabularyComponent implements OnInit {
     this.errorMessage = '';
     this.results.set([]);
     this.selected.set({});
+    this.expanded.set({});
     try {
       const grouped = await this.searchService.searchBatch(queries, this.sourceCode, this.targetCode);
       const batchResults = queries.flatMap((query) => grouped[query] ?? []);
@@ -151,6 +162,16 @@ export class AddVocabularyComponent implements OnInit {
   }
 
   isSelected(result: LexiconSearchResult): boolean { return Boolean(this.selected()[result.normalizedTerm]); }
+
+  isExpanded(result: LexiconSearchResult): boolean { return Boolean(this.expanded()[result.normalizedTerm]); }
+
+  toggleDetails(event: Event, result: LexiconSearchResult): void {
+    event.stopPropagation();
+    if (!result.senses.length && !result.phonetic && !result.romanization && !result.audioUrl) return;
+    this.expanded.update((current) => ({ ...current, [result.normalizedTerm]: !current[result.normalizedTerm] }));
+  }
+
+  dictionaryEntry(result: LexiconSearchResult): DictionaryViewEntry { return fromLexiconResult(result); }
 
   canImport(result: LexiconSearchResult): boolean {
     return hasImportableDefinition(result);

@@ -21,7 +21,7 @@ import {
 } from "./services/language-compat.ts";
 
 const provider = new WiktionaryProvider();
-const WIKTIONARY_CACHE_PROVIDER = "wiktionary-v4";
+const WIKTIONARY_CACHE_PROVIDER = "wiktionary-v5";
 
 Deno.serve(async (request: Request) => {
   const id = requestId();
