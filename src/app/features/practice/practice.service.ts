@@ -1,5 +1,12 @@
 import { Injectable } from '@angular/core';
-import { DeckItem, ExerciseType, PracticeQuestion, ReviewResponse } from '../../shared/models/domain.models';
+import {
+  DeckItem,
+  ExerciseGenerationRequest,
+  ExerciseGenerationResponse,
+  ExerciseType,
+  PracticeQuestion,
+  ReviewResponse,
+} from '../../shared/models/domain.models';
 import { SupabaseService } from '../../core/supabase/supabase.service';
 import { normalizeTerm } from '../../shared/utils/normalize';
 
@@ -12,22 +19,64 @@ export class PracticeService {
     const pool = [...usable].sort((a, b) => (a.review_state?.mastery ?? 0) - (b.review_state?.mastery ?? 0)).slice(0, limit);
     const meanings = usable.map((item) => this.meaning(item));
     return pool.map((item, index) => {
-      const type: ExerciseType = (['multiple_choice', 'typing', 'flashcard', 'matching'] as ExerciseType[])[index % 4];
+      const type: ExerciseType = (['multiple_choice_meaning', 'typing_meaning', 'flashcard', 'matching_pairs'] as ExerciseType[])[index % 4];
       const answer = this.meaning(item);
       const distractors = meanings.filter((meaning) => meaning !== answer).slice(0, 3);
-      const choices = this.shuffle([answer, ...distractors]);
-      const prompt = type === 'typing' ? `Type the meaning of “${item.lexeme?.term}”.` : type === 'flashcard' ? `Recall the meaning of “${item.lexeme?.term}”.` : type === 'matching' ? `Match “${item.lexeme?.term}” with its meaning.` : `What does “${item.lexeme?.term}” mean?`;
-      return { id: `local-${item.id}-${index}`, type, deckItemId: item.id, term: item.lexeme?.term ?? '', prompt, answer, choices, explanation: `${item.lexeme?.term} means ${answer}.` };
+      const choices = type === 'matching_pairs' ? [] : this.shuffle([answer, ...distractors]);
+      const prompt = type === 'typing_meaning'
+        ? `Type the meaning of “${item.lexeme?.term}”.`
+        : type === 'flashcard'
+          ? `Recall the meaning of “${item.lexeme?.term}”.`
+          : type === 'matching_pairs'
+            ? `Match “${item.lexeme?.term}” with its meaning.`
+            : `What does “${item.lexeme?.term}” mean?`;
+      return {
+        id: `local-${item.id}-${index}`,
+        type,
+        deckItemId: item.id,
+        term: item.lexeme?.term ?? '',
+        prompt,
+        answer,
+        choices,
+        explanation: `${item.lexeme?.term} means ${answer}.`,
+        acceptedAnswers: [answer],
+        payload: type === 'matching_pairs' ? { pairs: [{ left: item.lexeme?.term ?? '', right: answer }] } : {},
+        source: 'deterministic',
+      };
     });
   }
 
   isCorrect(question: PracticeQuestion, answer: string): boolean {
-    return normalizeTerm(answer) === normalizeTerm(question.answer);
+    const normalizedAnswer = normalizeTerm(answer);
+    return [question.answer, ...(question.acceptedAnswers ?? [])]
+      .some((expected) => normalizeTerm(expected) === normalizedAnswer);
   }
 
-  async createSession(deckId: string, questionCount: number): Promise<string | null> {
+  async generateSet(request: ExerciseGenerationRequest): Promise<ExerciseGenerationResponse> {
+    if (!this.supabase.configured) throw new Error('Supabase is not configured.');
+    const { data, error } = await this.supabase.requiredClient.functions.invoke<ExerciseGenerationResponse>('learning-api', {
+      body: { route: 'generate-set', ...request },
+    });
+    if (error) throw error;
+    if (!data?.exerciseSetId) throw new Error('The practice set could not be created.');
+    return data;
+  }
+
+  async loadSet(exerciseSetId: string): Promise<ExerciseGenerationResponse> {
+    if (!this.supabase.configured) throw new Error('Supabase is not configured.');
+    const { data, error } = await this.supabase.requiredClient.functions.invoke<ExerciseGenerationResponse>('learning-api', {
+      body: { route: 'get-set', exerciseSetId },
+    });
+    if (error) throw error;
+    if (!data?.exerciseSetId) throw new Error('The practice set could not be loaded.');
+    return data;
+  }
+
+  async createSession(deckId: string, questionCount: number, exerciseSetId?: string): Promise<string | null> {
     if (!this.supabase.configured) return null;
-    const { data, error } = await this.supabase.requiredClient.functions.invoke<{ sessionId: string }>('learning-api', { body: { route: 'sessions', deckId, questionCount } });
+    const { data, error } = await this.supabase.requiredClient.functions.invoke<{ sessionId: string }>('learning-api', {
+      body: { route: 'sessions', deckId, questionCount, ...(exerciseSetId ? { exerciseSetId } : {}) },
+    });
     if (error) throw error;
     return data?.sessionId ?? null;
   }

@@ -127,7 +127,47 @@ export interface ImportResult {
   failed: number;
 }
 
-export type ExerciseType = 'flashcard' | 'multiple_choice' | 'typing' | 'matching';
+export type ExerciseType =
+  | 'flashcard'
+  | 'multiple_choice'
+  | 'typing'
+  | 'matching'
+  | 'multiple_choice_meaning'
+  | 'multiple_choice_term'
+  | 'typing_meaning'
+  | 'typing_term'
+  | 'translation'
+  | 'reverse_translation'
+  | 'fill_blank'
+  | 'true_false'
+  | 'context_choice'
+  | 'scrambled_letters'
+  | 'matching_pairs'
+  | 'odd_one_out'
+  | 'example_choice'
+  | 'context_cloze';
+
+export type ExerciseDifficulty = 'easy' | 'adaptive' | 'hard';
+export type ExerciseDirection = 'source_to_target' | 'target_to_source';
+export type ExerciseSource = 'gemini' | 'deterministic';
+
+export interface ExerciseGenerationRequest {
+  deckId: string;
+  count: number;
+  modes: ExerciseType[];
+  difficulty: ExerciseDifficulty;
+  direction: ExerciseDirection;
+  title?: string;
+}
+
+export interface ExerciseGenerationResponse {
+  exerciseSetId: string;
+  source: ExerciseSource;
+  model: string | null;
+  count: number;
+  questions: PracticeQuestion[];
+  warning?: string;
+}
 
 export interface PracticeQuestion {
   id: string;
@@ -138,6 +178,9 @@ export interface PracticeQuestion {
   answer: string;
   choices: string[];
   explanation: string;
+  acceptedAnswers?: string[];
+  payload?: Record<string, unknown>;
+  source?: ExerciseSource;
 }
 
 export interface ReviewResponse {

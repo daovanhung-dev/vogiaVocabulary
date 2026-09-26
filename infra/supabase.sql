@@ -1,3 +1,11 @@
+-- Global Vocabulary Learning Platform
+-- Canonical Supabase schema for the personal web app.
+-- Apply this file to a fresh Supabase project, or use the matching migration
+-- in supabase/migrations/ when deploying with the Supabase CLI.
+--
+-- The browser uses Anonymous Auth. Anonymous users receive an authenticated
+-- JWT, so all private data remains protected by the RLS policies below.
+
 create extension if not exists "pgcrypto";
 
 create table if not exists public.profiles (
@@ -531,6 +539,8 @@ create policy practice_sessions_owner on public.practice_sessions for all to aut
 drop policy if exists question_attempts_owner on public.question_attempts;
 create policy question_attempts_owner on public.question_attempts for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- Anonymous role has no direct database access. The browser first obtains an
+-- anonymous authenticated JWT, then the authenticated policies above apply.
 revoke all on table public.profiles, public.languages, public.lexemes, public.senses, public.translations, public.examples, public.lexicon_cache, public.ai_generation_usage, public.decks, public.deck_items, public.review_states, public.exercise_sets, public.exercise_questions, public.practice_sessions, public.question_attempts from anon;
 revoke all on public.lexicon_cache from authenticated;
 revoke all on public.ai_generation_usage from authenticated;

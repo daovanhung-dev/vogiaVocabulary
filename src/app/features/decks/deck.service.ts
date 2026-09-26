@@ -54,9 +54,7 @@ export class DeckService {
   }
 
   async createDeck(input: Pick<Deck, 'name' | 'description' | 'source_language_id' | 'target_language_id'>): Promise<Deck> {
-    const { data: userData } = await this.supabase.requiredClient.auth.getUser();
-    if (!userData.user) throw new Error('You must be signed in to create a deck.');
-    const { data, error } = await this.supabase.requiredClient.from('decks').insert({ ...input, user_id: userData.user.id }).select('*').single();
+    const { data, error } = await this.supabase.requiredClient.from('decks').insert(input).select('*').single();
     if (error) throw error;
     return data as Deck;
   }

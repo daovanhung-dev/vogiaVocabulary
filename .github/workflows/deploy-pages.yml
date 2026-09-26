@@ -58,7 +58,7 @@ jobs:
           test -f "${PAGES_DIR}/404.html"
           cmp -s "${PAGES_DIR}/index.html" "${PAGES_DIR}/404.html"
 
-          if grep -RInE 'SUPABASE_SERVICE_ROLE_KEY|GEMINI_API_KEY|AIza|service_role' "${PAGES_DIR}" --include='*.js'; then
+          if grep -RInE 'SUPABASE_SECRET_KEY|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEYS|SUPABASE_JWKS_URL|GEMINI_API_KEY|AIza|service_role|sb_secret_[A-Za-z0-9_-]{20,}' "${PAGES_DIR}" --include='*.js'; then
             echo "A server-only secret marker was found in the frontend bundle."
             exit 1
           fi

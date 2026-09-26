@@ -8,6 +8,7 @@ major_version = 15
 
 [auth]
 enabled = true
+enable_anonymous_sign_ins = true
 site_url = "http://localhost:4200"
 additional_redirect_urls = ["http://localhost:4200"]
 

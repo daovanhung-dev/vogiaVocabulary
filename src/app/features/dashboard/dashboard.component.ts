@@ -5,9 +5,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { Deck, Language } from '../../shared/models/domain.models';
-import { AuthService } from '../../core/auth/auth.service';
 import { DeckService } from '../decks/deck.service';
-import { SupabaseService } from '../../core/supabase/supabase.service';
 
 @Component({
   selector: 'gv-dashboard',
@@ -19,7 +17,7 @@ import { SupabaseService } from '../../core/supabase/supabase.service';
         <div>
           <p class="eyebrow">Your learning loop</p>
           <h1>Make room for one more word.</h1>
-          <p class="muted">{{ greeting }}, keep your next review small and consistent.</p>
+          <p class="muted">Your personal workspace is ready. Keep your next review small and consistent.</p>
         </div>
         <a mat-flat-button color="primary" routerLink="/decks"><mat-icon>add</mat-icon>Manage decks</a>
       </section>
@@ -54,13 +52,7 @@ import { SupabaseService } from '../../core/supabase/supabase.service';
 export class DashboardComponent implements OnInit {
   readonly decks = signal<Deck[]>([]);
   readonly languages = signal<Language[]>([]);
-  readonly auth = inject(AuthService);
-  readonly supabase = inject(SupabaseService);
   private readonly deckService = inject(DeckService);
-
-  get greeting(): string {
-    return this.auth.user()?.user_metadata?.['display_name'] || this.auth.user()?.email?.split('@')[0] || 'Learner';
-  }
 
   async ngOnInit(): Promise<void> {
     this.languages.set(await this.deckService.loadLanguages());

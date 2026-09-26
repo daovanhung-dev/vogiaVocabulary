@@ -4,7 +4,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSidenavModule } from '@angular/material/sidenav';
-import { AuthService } from '../core/auth/auth.service';
+import { AnonymousSessionService } from '../core/auth/anonymous-session.service';
 import { SupabaseService } from '../core/supabase/supabase.service';
 
 @Component({
@@ -21,8 +21,7 @@ import { SupabaseService } from '../core/supabase/supabase.service';
           <a mat-button routerLink="/decks" routerLinkActive="active"><mat-icon>style</mat-icon>My decks</a>
         </nav>
         <div class="sidebar-footer">
-          <span class="status-chip">MVP workspace</span>
-          <button mat-button class="sign-out" (click)="signOut()"><mat-icon>logout</mat-icon>Sign out</button>
+          <span class="status-chip">Personal workspace</span>
         </div>
       </mat-sidenav>
 
@@ -30,11 +29,14 @@ import { SupabaseService } from '../core/supabase/supabase.service';
         <header class="topbar">
           <button mat-icon-button class="menu-button" (click)="sidenav.toggle()" aria-label="Toggle navigation"><mat-icon>menu</mat-icon></button>
           <div class="topbar-spacer"></div>
-          <span class="user-email">{{ auth.user()?.email }}</span>
+          <span class="workspace-label">Private workspace</span>
           <span class="avatar">{{ initials }}</span>
         </header>
         <div class="setup-banner" *ngIf="!supabase.configured">
           Supabase chưa được cấu hình — app đang ở chế độ UI preview. Cập nhật <code>src/environments/environment.ts</code> để kết nối dữ liệu thật.
+        </div>
+        <div class="setup-banner error" *ngIf="supabase.configured && anonymous.error() as sessionError">
+          {{ sessionError }} Bật Anonymous Sign-Ins trong Supabase Dashboard rồi tải lại trang.
         </div>
         <main><router-outlet /></main>
       </mat-sidenav-content>
@@ -52,26 +54,22 @@ import { SupabaseService } from '../core/supabase/supabase.service';
       .nav-list a.active { background: #eaf2f7; color: var(--brand-strong); font-weight: 800; }
       .nav-list mat-icon { margin-right: 10px; }
       .sidebar-footer { display: grid; gap: 20px; position: absolute; left: 16px; right: 16px; bottom: 24px; }
-      .sign-out { justify-content: flex-start; color: var(--muted); }
       .topbar { display: flex; align-items: center; min-height: 72px; padding: 0 32px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.86); }
       .topbar-spacer { flex: 1; }
-      .user-email { color: var(--muted); font-size: .9rem; }
+      .workspace-label { color: var(--muted); font-size: .9rem; }
       .avatar { display: grid; place-items: center; width: 34px; height: 34px; margin-left: 14px; border-radius: 50%; background: var(--accent); color: var(--brand-strong); font-weight: 900; }
       .menu-button { display: none; }
       .setup-banner { padding: 10px 32px; background: #fff8e5; color: #704f00; font-size: .85rem; }
-      @media (max-width: 800px) { .sidebar { width: 220px; } .menu-button { display: inline-flex; } .topbar { padding: 0 16px; } .user-email { display: none; } }
+      .setup-banner.error { background: #fff0ee; color: #8b251c; }
+      @media (max-width: 800px) { .sidebar { width: 220px; } .menu-button { display: inline-flex; } .topbar { padding: 0 16px; } .workspace-label { display: none; } }
     `,
   ],
 })
 export class AppShellComponent {
-  readonly auth = inject(AuthService);
   readonly supabase = inject(SupabaseService);
+  readonly anonymous = inject(AnonymousSessionService);
 
   get initials(): string {
-    return (this.auth.user()?.email?.slice(0, 1) ?? 'L').toUpperCase();
-  }
-
-  async signOut(): Promise<void> {
-    await this.auth.signOut();
+    return 'L';
   }
 }

@@ -7,11 +7,21 @@ Angular + Supabase MVP for multilingual vocabulary learning.
 1. Install Node.js 20+ and npm.
 2. Run `npm install`.
 3. Copy the values from `.env.example` into `src/environments/environment.ts`.
-4. Apply the SQL in `supabase/migrations/20260926000000_initial_schema.sql` to a Supabase project.
-5. Deploy the Edge Functions in `supabase/functions/`.
-6. Run `npm start`.
+4. Enable **Authentication → Providers → Anonymous Sign-Ins** in Supabase.
+5. Apply `infra/supabase.sql` in the Supabase SQL Editor, or deploy the matching migration with `supabase db push`.
+6. Set the Gemini secret for Edge Functions:
+
+   ```bash
+   supabase secrets set GEMINI_API_KEY="..."
+   supabase secrets set GEMINI_MODEL="gemini-2.5-flash"
+   ```
+
+7. Deploy the Edge Functions in `supabase/functions/`.
+8. Run `npm start`.
 
 The browser only uses the Supabase URL and publishable key. Provider and server secrets belong in Supabase Edge Function secrets.
+
+The app does not show a login screen. On first load it creates a Supabase anonymous session and keeps data private through RLS. The session is tied to the current browser/device; clearing site storage or changing devices starts a new workspace.
 
 ## GitHub Pages deployment
 
@@ -54,7 +64,9 @@ supabase functions deploy lexicon-api --no-verify-jwt
 supabase functions deploy learning-api --no-verify-jwt
 ```
 
-The Edge Functions use the project-provided `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` secrets. Do not copy the service role key into Angular or commit it to the repository.
+The Edge Functions use the project-provided `SUPABASE_URL`, publishable key and secret key secrets. Do not copy the secret/service-role key into Angular or commit it to the repository.
+
+AI practice uses `GEMINI_API_KEY` only inside `learning-api`. The browser never receives this key. Each anonymous session can generate up to five AI practice sets per hour; deterministic quick practice remains available when Gemini is unavailable.
 
 The Edge Functions also support the current Supabase key maps automatically provided by hosted projects:
 
@@ -67,7 +79,6 @@ For local development, copy `supabase/functions/.env.example` to `supabase/funct
 
 ## MVP routes
 
-- `/login` and `/register`
 - `/dashboard`
 - `/decks`
 - `/decks/:deckId/add`
