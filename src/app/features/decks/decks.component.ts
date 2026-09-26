@@ -7,18 +7,20 @@ import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { Deck, Language } from '../../shared/models/domain.models';
 import { DeckService } from './deck.service';
 import { SupabaseService } from '../../core/supabase/supabase.service';
+import { differentLanguagesValidator } from '../../shared/utils/language-validation';
 
 @Component({
   selector: 'gv-decks',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, RouterLink, MatButtonModule, MatCardModule, MatFormFieldModule, MatIconModule, MatInputModule, MatSelectModule],
+  imports: [CommonModule, ReactiveFormsModule, RouterLink, MatButtonModule, MatCardModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule, MatSelectModule],
   template: `
     <div class="page">
-      <div class="page-header"><div><p class="eyebrow">Vocabulary spaces</p><h1>My decks</h1><p class="muted">Keep each learning goal small enough to return to.</p></div><span class="status-chip">{{ decks().length }} active</span></div>
+      <div class="page-header"><div><p class="eyebrow">Vocabulary spaces</p><h1>My decks</h1><p class="muted">Keep each learning goal small enough to return to.</p></div><span class="status-chip">{{ loadingDecks ? 'Loading…' : decks().length + ' active' }}</span></div>
       <div class="grid grid-2 layout-grid">
         <section class="panel panel-content create-panel">
           <div class="card-header"><div><h2>{{ editingId ? 'Edit deck' : 'Create a deck' }}</h2><p class="muted">Choose the direction you want to practise.</p></div><mat-icon>{{ editingId ? 'edit' : 'add_circle' }}</mat-icon></div>
@@ -29,17 +31,19 @@ import { SupabaseService } from '../../core/supabase/supabase.service';
               <mat-form-field appearance="outline"><mat-label>Learning language</mat-label><mat-select formControlName="sourceLanguageId"><mat-option *ngFor="let language of languages()" [value]="language.id">{{ language.name }}</mat-option></mat-select></mat-form-field>
               <mat-form-field appearance="outline"><mat-label>Meaning language</mat-label><mat-select formControlName="targetLanguageId"><mat-option *ngFor="let language of languages()" [value]="language.id">{{ language.name }}</mat-option></mat-select></mat-form-field>
             </div>
+            <p class="error-text" *ngIf="form.hasError('sameLanguage')">Learning language and meaning language must be different.</p>
             <p class="error-text" *ngIf="errorMessage">{{ errorMessage }}</p>
             <div class="form-actions"><button mat-flat-button color="primary" type="submit" [disabled]="form.invalid || saving || !supabase.configured">{{ saving ? 'Saving…' : editingId ? 'Save changes' : 'Create deck' }}</button><button mat-button type="button" *ngIf="editingId" (click)="cancelEdit()">Cancel</button></div>
           </form>
         </section>
         <section class="deck-list">
+          <div class="panel empty-state" *ngIf="loadingDecks"><mat-spinner diameter="32"></mat-spinner><p>Loading decks…</p></div>
           <mat-card *ngFor="let deck of decks()" class="deck-row">
             <mat-card-header><mat-icon mat-card-avatar>style</mat-icon><mat-card-title>{{ deck.name }}</mat-card-title><mat-card-subtitle>{{ languageName(deck.source_language_id) }} → {{ languageName(deck.target_language_id) }}</mat-card-subtitle></mat-card-header>
             <mat-card-content><p>{{ deck.description || 'No description yet.' }}</p></mat-card-content>
             <mat-card-actions><a mat-button color="primary" [routerLink]="['/decks', deck.id]">Open</a><a mat-button [routerLink]="['/decks', deck.id, 'add']">Add words</a><button mat-button type="button" (click)="startEdit(deck)">Edit</button><button mat-button color="warn" type="button" (click)="archiveDeck(deck)">Archive</button></mat-card-actions>
           </mat-card>
-          <div class="panel empty-state" *ngIf="!decks().length"><mat-icon>style</mat-icon><p>No decks yet. Create one to get started.</p></div>
+          <div class="panel empty-state" *ngIf="!loadingDecks && !decks().length"><mat-icon>style</mat-icon><p>No decks yet. Create one to get started.</p></div>
         </section>
       </div>
     </div>
@@ -64,19 +68,30 @@ export class DecksComponent implements OnInit {
     description: [''],
     sourceLanguageId: ['', Validators.required],
     targetLanguageId: ['', Validators.required],
-  });
+  }, { validators: differentLanguagesValidator });
   saving = false;
+  loadingDecks = true;
   errorMessage = '';
   editingId: string | null = null;
 
   async ngOnInit(): Promise<void> {
-    this.languages.set(await this.deckService.loadLanguages());
-    if (this.languages().length >= 2) this.form.patchValue({ sourceLanguageId: this.languages()[0].id, targetLanguageId: this.languages()[1].id });
-    await this.refresh();
+    try {
+      this.languages.set(await this.deckService.loadLanguages());
+      if (this.languages().length >= 2) this.form.patchValue({ sourceLanguageId: this.languages()[0].id, targetLanguageId: this.languages()[1].id });
+      await this.refresh();
+    } catch (error) {
+      this.errorMessage = error instanceof Error ? error.message : 'Unable to load decks.';
+      this.loadingDecks = false;
+    }
   }
 
   async refresh(): Promise<void> {
-    this.decks.set(await this.deckService.listDecks());
+    this.loadingDecks = true;
+    try {
+      this.decks.set(await this.deckService.listDecks());
+    } finally {
+      this.loadingDecks = false;
+    }
   }
 
   async createDeck(): Promise<void> {

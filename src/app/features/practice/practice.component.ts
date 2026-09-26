@@ -205,6 +205,10 @@ export class PracticeComponent implements OnInit {
   async generateAiPractice(): Promise<void> {
     this.setupError = '';
     this.generationWarning = '';
+    if (!this.hasUsableVocabulary()) {
+      this.setupError = 'Add meanings to at least one word before starting practice.';
+      return;
+    }
     const count = Number(this.countControl.value);
     if (!Number.isInteger(count) || count < 10 || count > 100) {
       this.setupError = 'Choose between 10 and 100 questions.';
@@ -231,10 +235,25 @@ export class PracticeComponent implements OnInit {
   async startQuickPractice(): Promise<void> {
     this.setupError = '';
     this.generationWarning = '';
+    if (!this.hasUsableVocabulary()) {
+      this.setupError = 'Add meanings to at least one word before starting practice.';
+      return;
+    }
     const limit = Math.min(20, this.deckItems().length);
-    if (!limit) return;
+    if (!limit) {
+      this.setupError = 'Add vocabulary before starting practice.';
+      return;
+    }
     const questions = this.practiceService.buildQuestions(this.deckItems(), limit);
+    if (!questions.length) {
+      this.setupError = 'Add meanings to at least one word before starting practice.';
+      return;
+    }
     await this.startSession(questions, null, 'deterministic');
+  }
+
+  private hasUsableVocabulary(): boolean {
+    return this.deckItems().some((item) => this.practiceService.hasMeaning(item));
   }
 
   toggleMode(mode: ExerciseType): void {

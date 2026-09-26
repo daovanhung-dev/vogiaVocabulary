@@ -15,6 +15,7 @@ import {
 import { WiktionaryProvider } from "./providers/wiktionary.provider.ts";
 
 const provider = new WiktionaryProvider();
+const WIKTIONARY_CACHE_PROVIDER = "wiktionary-v2";
 
 Deno.serve(async (request: Request) => {
   const id = requestId();
@@ -69,7 +70,7 @@ Deno.serve(async (request: Request) => {
       ).eq("language_code", sourceLanguage).eq(
         "target_language_code",
         targetLanguage,
-      ).eq("provider", "wiktionary").gt("expires_at", new Date().toISOString())
+      ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt("expires_at", new Date().toISOString())
         .maybeSingle();
       if (cached.data?.result) return jsonResponse(cached.data.result);
 
@@ -79,7 +80,7 @@ Deno.serve(async (request: Request) => {
         query: cacheKey,
         language_code: sourceLanguage,
         target_language_code: targetLanguage,
-        provider: "wiktionary",
+        provider: WIKTIONARY_CACHE_PROVIDER,
         result: payload,
         expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7)
           .toISOString(),
@@ -227,7 +228,7 @@ async function searchWithCache(
   ).eq("language_code", request.sourceLanguage).eq(
     "target_language_code",
     request.targetLanguage,
-  ).eq("provider", "wiktionary").gt("expires_at", new Date().toISOString())
+  ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt("expires_at", new Date().toISOString())
     .maybeSingle();
   if (
     cached.data?.result && typeof cached.data.result === "object" &&
@@ -238,7 +239,7 @@ async function searchWithCache(
     query: cacheKey,
     language_code: request.sourceLanguage,
     target_language_code: request.targetLanguage,
-    provider: "wiktionary",
+    provider: WIKTIONARY_CACHE_PROVIDER,
     result: { results },
     expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
   }, { onConflict: "query,language_code,target_language_code,provider" });

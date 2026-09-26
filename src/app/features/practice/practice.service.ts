@@ -15,7 +15,7 @@ export class PracticeService {
   constructor(private readonly supabase: SupabaseService) {}
 
   buildQuestions(items: DeckItem[], limit = 20): PracticeQuestion[] {
-    const usable = items.filter((item) => item.lexeme?.term && this.meaning(item));
+    const usable = items.filter((item) => item.lexeme?.term && this.hasMeaning(item));
     const pool = [...usable].sort((a, b) => (a.review_state?.mastery ?? 0) - (b.review_state?.mastery ?? 0)).slice(0, limit);
     const meanings = usable.map((item) => this.meaning(item));
     return pool.map((item, index) => {
@@ -44,6 +44,10 @@ export class PracticeService {
         source: 'deterministic',
       };
     });
+  }
+
+  hasMeaning(item: DeckItem): boolean {
+    return Boolean(this.meaning(item));
   }
 
   isCorrect(question: PracticeQuestion, answer: string): boolean {

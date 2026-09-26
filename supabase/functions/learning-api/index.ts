@@ -93,10 +93,18 @@ async function generateExerciseSet(
   const deck = await getOwnedDeck(admin, userId, deckId);
   if (!deck) return errorResponse("DECK_NOT_FOUND", "The requested deck was not found.", requestIdValue, 404);
 
-  const vocabulary = await loadVocabulary(admin, deckId);
-  if (!vocabulary.length) {
-    return errorResponse("VOCABULARY_EMPTY", "Add vocabulary before generating a practice set.", requestIdValue, 400);
+  const loadedVocabulary = await loadVocabulary(admin, deckId);
+  if (!loadedVocabulary.items.length) {
+    return errorResponse(
+      loadedVocabulary.total ? "VOCABULARY_NO_MEANINGS" : "VOCABULARY_EMPTY",
+      loadedVocabulary.total
+        ? "Add meanings to at least one word before generating a practice set."
+        : "Add vocabulary before generating a practice set.",
+      requestIdValue,
+      400,
+    );
   }
+  const vocabulary = loadedVocabulary.items;
 
   const quota = await admin.rpc("consume_ai_generation_quota", {
     p_user_id: userId,
@@ -308,7 +316,7 @@ async function getOwnedDeck(admin: SupabaseClient, userId: string, deckId: strin
   return result.data as Record<string, unknown> | null;
 }
 
-async function loadVocabulary(admin: SupabaseClient, deckId: string): Promise<VocabularyContext[]> {
+async function loadVocabulary(admin: SupabaseClient, deckId: string): Promise<{ items: VocabularyContext[]; total: number }> {
   const result = await admin.from("deck_items").select(
     "id, custom_meaning, created_at, lexeme:lexemes(term, senses(definition, translations(translation), examples(sentence))), review_state:review_states(mastery, next_review_at)",
   ).eq("deck_id", deckId).limit(500);
@@ -322,7 +330,11 @@ async function loadVocabulary(admin: SupabaseClient, deckId: string): Promise<Vo
     if (leftDue !== rightDue) return leftDue - rightDue;
     return Number(leftState?.mastery ?? 0) - Number(rightState?.mastery ?? 0);
   });
-  return rows.slice(0, 100).map(toVocabularyContext).filter((item): item is VocabularyContext => Boolean(item));
+  const items = rows
+    .map(toVocabularyContext)
+    .filter((item): item is VocabularyContext => Boolean(item && item.meanings.length))
+    .slice(0, 100);
+  return { items, total: rows.length };
 }
 
 function toVocabularyContext(row: Record<string, unknown>): VocabularyContext | null {
@@ -410,6 +422,7 @@ function errorCode(message: string): string {
   if (message === "AUTH_REQUIRED") return "AUTH_REQUIRED";
   if (message === "INVALID_QUESTION_COUNT" || message === "INVALID_EXERCISE_MODES") return "INVALID_REQUEST";
   if (message.includes("DECK_NOT_FOUND")) return "DECK_NOT_FOUND";
+  if (message.includes("VOCABULARY_NO_MEANINGS")) return "VOCABULARY_NO_MEANINGS";
   if (message.includes("VOCABULARY_NOT_FOUND")) return "VOCABULARY_NOT_FOUND";
   if (message.includes("EXERCISE_SET_NOT_FOUND")) return "EXERCISE_SET_NOT_FOUND";
   if (message.includes("AI_QUOTA")) return "AI_QUOTA_EXCEEDED";
@@ -419,6 +432,7 @@ function errorCode(message: string): string {
 function publicErrorMessage(code: string, message: string): string {
   if (code === "INVALID_REQUEST") return "Invalid learning request.";
   if (code === "AI_QUOTA_EXCEEDED") return message;
+  if (code === "VOCABULARY_NO_MEANINGS") return "Add meanings to at least one word before starting practice.";
   if (code === "SUPABASE_CONFIG_MISSING") return message;
   if (code === "AUTH_REQUIRED") return "Authentication is required.";
   return message;

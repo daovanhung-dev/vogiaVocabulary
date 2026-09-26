@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
-import { Deck, DeckItem, Language } from '../../shared/models/domain.models';
+import { DashboardStats, Deck, DeckItem, Language } from '../../shared/models/domain.models';
 import { SupabaseService } from '../../core/supabase/supabase.service';
+import { calculateReviewStreakDays } from '../../shared/utils/review-streak';
 
 const LANGUAGE_PRESETS: Language[] = [
   { id: '00000000-0000-0000-0000-000000000001', code: 'en', name: 'English', native_name: 'English', bcp47: 'en', iso_639_1: 'en', iso_639_3: 'eng', script_code: 'Latn', direction: 'ltr', is_enabled: true },
@@ -83,5 +84,23 @@ export class DeckService {
       .order('created_at', { ascending: false });
     if (error) throw error;
     return (data ?? []) as DeckItem[];
+  }
+
+  async getDashboardStats(deckIds: string[]): Promise<DashboardStats> {
+    if (!this.supabase.configured || !deckIds.length) {
+      return { wordsSaved: 0, reviewStreakDays: 0 };
+    }
+
+    const [itemsResult, attemptsResult] = await Promise.all([
+      this.supabase.requiredClient.from('deck_items').select('id').in('deck_id', deckIds),
+      this.supabase.requiredClient.from('question_attempts').select('created_at').order('created_at', { ascending: false }),
+    ]);
+    if (itemsResult.error) throw itemsResult.error;
+    if (attemptsResult.error) throw attemptsResult.error;
+
+    return {
+      wordsSaved: itemsResult.data?.length ?? 0,
+      reviewStreakDays: calculateReviewStreakDays((attemptsResult.data ?? []).map((attempt) => attempt.created_at)),
+    };
   }
 }

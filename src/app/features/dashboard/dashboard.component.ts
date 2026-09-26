@@ -4,7 +4,7 @@ import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
-import { Deck, Language } from '../../shared/models/domain.models';
+import { DashboardStats, Deck, Language } from '../../shared/models/domain.models';
 import { DeckService } from '../decks/deck.service';
 
 @Component({
@@ -23,20 +23,22 @@ import { DeckService } from '../decks/deck.service';
       </section>
 
       <section class="grid grid-3 metric-grid">
-        <mat-card><mat-card-subtitle>Active decks</mat-card-subtitle><mat-card-title>{{ decks().length }}</mat-card-title><mat-card-content><span class="muted">Your focused spaces</span></mat-card-content></mat-card>
-        <mat-card><mat-card-subtitle>Words saved</mat-card-subtitle><mat-card-title>—</mat-card-title><mat-card-content><span class="muted">Visible after your first import</span></mat-card-content></mat-card>
-        <mat-card><mat-card-subtitle>Review streak</mat-card-subtitle><mat-card-title>0 days</mat-card-title><mat-card-content><span class="muted">Start a practice session</span></mat-card-content></mat-card>
+        <mat-card><mat-card-subtitle>Active decks</mat-card-subtitle><mat-card-title>{{ loading ? '…' : decks().length }}</mat-card-title><mat-card-content><span class="muted">Your focused spaces</span></mat-card-content></mat-card>
+        <mat-card><mat-card-subtitle>Words saved</mat-card-subtitle><mat-card-title>{{ loading ? '…' : stats().wordsSaved }}</mat-card-title><mat-card-content><span class="muted">Across your active decks</span></mat-card-content></mat-card>
+        <mat-card><mat-card-subtitle>Review streak</mat-card-subtitle><mat-card-title>{{ loading ? '…' : stats().reviewStreakDays + ' days' }}</mat-card-title><mat-card-content><span class="muted">Consecutive days with a review</span></mat-card-content></mat-card>
       </section>
+      <p class="error-text" *ngIf="errorMessage">{{ errorMessage }}</p>
 
       <section class="page-header section-header"><div><p class="eyebrow">Keep going</p><h2>Recent decks</h2></div><a mat-button routerLink="/decks">View all</a></section>
-      <section class="grid grid-3" *ngIf="decks().length; else noDecks">
+      <section class="panel empty-state" *ngIf="loading"><p>Loading recent decks…</p></section>
+      <section class="grid grid-3" *ngIf="!loading && decks().length">
         <mat-card class="deck-card" *ngFor="let deck of decks()">
           <mat-card-header><mat-icon mat-card-avatar>style</mat-icon><mat-card-title>{{ deck.name }}</mat-card-title><mat-card-subtitle>{{ languageName(deck.source_language_id) }} → {{ languageName(deck.target_language_id) }}</mat-card-subtitle></mat-card-header>
           <mat-card-content><p>{{ deck.description || 'A small, focused vocabulary set.' }}</p></mat-card-content>
           <mat-card-actions><a mat-button color="primary" [routerLink]="['/decks', deck.id]">Open deck</a></mat-card-actions>
         </mat-card>
       </section>
-      <ng-template #noDecks><div class="panel empty-state"><mat-icon>auto_stories</mat-icon><h3>Your first deck is waiting.</h3><p>Create a deck, then add words from Wiktionary.</p><a mat-flat-button color="primary" routerLink="/decks">Create a deck</a></div></ng-template>
+      <div class="panel empty-state" *ngIf="!loading && !decks().length"><mat-icon>auto_stories</mat-icon><h3>Your first deck is waiting.</h3><p>Create a deck, then add words from Wiktionary.</p><a mat-flat-button color="primary" routerLink="/decks">Create a deck</a></div>
     </div>
   `,
   styles: [`
@@ -52,11 +54,25 @@ import { DeckService } from '../decks/deck.service';
 export class DashboardComponent implements OnInit {
   readonly decks = signal<Deck[]>([]);
   readonly languages = signal<Language[]>([]);
+  readonly stats = signal<DashboardStats>({ wordsSaved: 0, reviewStreakDays: 0 });
   private readonly deckService = inject(DeckService);
+  loading = true;
+  errorMessage = '';
 
   async ngOnInit(): Promise<void> {
-    this.languages.set(await this.deckService.loadLanguages());
-    this.decks.set(await this.deckService.listDecks());
+    try {
+      const [languages, decks] = await Promise.all([
+        this.deckService.loadLanguages(),
+        this.deckService.listDecks(),
+      ]);
+      this.languages.set(languages);
+      this.decks.set(decks);
+      this.stats.set(await this.deckService.getDashboardStats(decks.map((deck) => deck.id)));
+    } catch (error) {
+      this.errorMessage = error instanceof Error ? error.message : 'Unable to load dashboard data.';
+    } finally {
+      this.loading = false;
+    }
   }
 
   languageName(id: string): string {

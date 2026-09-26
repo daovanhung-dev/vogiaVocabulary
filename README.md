@@ -43,7 +43,7 @@ Configure the repository as follows:
 
 3. Push to `main`, or start the workflow manually from the Actions tab.
 
-The workflow injects the public Supabase configuration, builds with the repository base path, creates `404.html` for Angular route fallback, and deploys `dist/global-vocabulary-platform/browser`.
+The workflow injects the public Supabase configuration, builds with the repository base path, creates `404.html` for Angular route fallback, and deploys `dist/global-vocabulary-platform/browser`. The app uses hash routing so direct links and refreshes work reliably on GitHub Pages.
 
 Never add `SUPABASE_SERVICE_ROLE_KEY` or `GEMINI_API_KEY` to GitHub Pages secrets used by the frontend build. Those secrets belong only in Supabase Edge Function secrets.
 
@@ -79,11 +79,13 @@ For local development, copy `supabase/functions/.env.example` to `supabase/funct
 
 ## MVP routes
 
-- `/dashboard`
-- `/decks`
-- `/decks/:deckId/add`
-- `/decks/:deckId/vocabulary`
-- `/decks/:deckId/practice`
+The routes are available after the hash fragment, for example:
+
+- `/#/dashboard`
+- `/#/decks`
+- `/#/decks/:deckId/add`
+- `/#/decks/:deckId/vocabulary`
+- `/#/decks/:deckId/practice`
 
 ## Tests
 

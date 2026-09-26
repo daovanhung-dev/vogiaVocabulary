@@ -103,6 +103,11 @@ export interface ReviewState {
   next_review_at: string | null;
 }
 
+export interface DashboardStats {
+  wordsSaved: number;
+  reviewStreakDays: number;
+}
+
 export interface LexiconSearchRequest {
   query: string;
   sourceLanguage: string;
