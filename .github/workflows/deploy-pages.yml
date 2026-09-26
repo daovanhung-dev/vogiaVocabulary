@@ -1,0 +1,83 @@
+name: Deploy Angular to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Inject public Supabase configuration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: node scripts/write-github-environment.mjs
+
+      - name: Build Angular application
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: npm run build -- --base-href "/${REPOSITORY_NAME}/"
+
+      - name: Prepare GitHub Pages artifact
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          PAGES_DIR="dist/global-vocabulary-platform/browser"
+          EXPECTED_BASE_HREF="/${REPOSITORY_NAME}/"
+
+          test -f "${PAGES_DIR}/index.html"
+          grep -Fq "<base href=\"${EXPECTED_BASE_HREF}\">" "${PAGES_DIR}/index.html"
+          cp "${PAGES_DIR}/index.html" "${PAGES_DIR}/404.html"
+          touch "${PAGES_DIR}/.nojekyll"
+
+          test -f "${PAGES_DIR}/404.html"
+          cmp -s "${PAGES_DIR}/index.html" "${PAGES_DIR}/404.html"
+
+          if grep -RInE 'SUPABASE_SERVICE_ROLE_KEY|GEMINI_API_KEY|AIza|service_role' "${PAGES_DIR}" --include='*.js'; then
+            echo "A server-only secret marker was found in the frontend bundle."
+            exit 1
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/global-vocabulary-platform/browser
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

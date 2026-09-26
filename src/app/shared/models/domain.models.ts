@@ -1,0 +1,146 @@
+export interface Language {
+  id: string;
+  code: string;
+  name: string;
+  native_name: string;
+  bcp47: string;
+  iso_639_1: string | null;
+  iso_639_3: string | null;
+  script_code: string | null;
+  direction: 'ltr' | 'rtl';
+  is_enabled: boolean;
+}
+
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  native_language: string | null;
+  timezone: string | null;
+}
+
+export interface Deck {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  source_language_id: string;
+  target_language_id: string;
+  is_archived: boolean;
+  created_at: string;
+  source_language?: Language;
+  target_language?: Language;
+  item_count?: number;
+}
+
+export interface Lexeme {
+  id: string;
+  language_id: string;
+  term: string;
+  normalized_term: string;
+  romanization: string | null;
+  phonetic: string | null;
+  audio_url: string | null;
+  source: string | null;
+  source_reference: string | null;
+}
+
+export interface Translation {
+  id?: string;
+  sense_id?: string;
+  target_language_id?: string;
+  translation: string;
+  romanization?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+}
+
+export interface Example {
+  id?: string;
+  sense_id?: string;
+  sentence: string;
+  sentence_translation: string | null;
+  language_id: string;
+  source?: string | null;
+}
+
+export interface Sense {
+  id?: string;
+  lexeme_id?: string;
+  part_of_speech: string | null;
+  definition: string;
+  definition_language_id?: string | null;
+  order_index?: number;
+  source?: string | null;
+  translations?: Translation[];
+  examples?: Example[];
+}
+
+export interface DeckItem {
+  id: string;
+  deck_id: string;
+  lexeme_id: string;
+  preferred_translation_id: string | null;
+  custom_meaning: string | null;
+  custom_note: string | null;
+  priority: number;
+  created_at: string;
+  lexeme?: Lexeme & { senses?: Sense[] };
+  review_state?: ReviewState | null;
+}
+
+export interface ReviewState {
+  id: string;
+  user_id: string;
+  deck_item_id: string;
+  mastery: number;
+  difficulty: number;
+  stability: number;
+  correct_count: number;
+  incorrect_count: number;
+  streak: number;
+  last_reviewed_at: string | null;
+  next_review_at: string | null;
+}
+
+export interface LexiconSearchRequest {
+  query: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+}
+
+export interface LexiconSearchResult {
+  term: string;
+  normalizedTerm: string;
+  languageCode: string;
+  romanization: string | null;
+  phonetic: string | null;
+  audioUrl: string | null;
+  source: string;
+  sourceReference: string | null;
+  senses: Sense[];
+}
+
+export interface ImportResult {
+  inserted: number;
+  duplicate: number;
+  failed: number;
+}
+
+export type ExerciseType = 'flashcard' | 'multiple_choice' | 'typing' | 'matching';
+
+export interface PracticeQuestion {
+  id: string;
+  type: ExerciseType;
+  deckItemId: string;
+  term: string;
+  prompt: string;
+  answer: string;
+  choices: string[];
+  explanation: string;
+}
+
+export interface ReviewResponse {
+  reviewState: ReviewState;
+  isCorrect: boolean;
+}

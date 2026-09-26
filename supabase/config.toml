@@ -1,0 +1,18 @@
+project_id = "global-vocabulary-platform"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
+
+[auth]
+enabled = true
+site_url = "http://localhost:4200"
+additional_redirect_urls = ["http://localhost:4200"]
+
+[functions.lexicon-api]
+verify_jwt = false
+
+[functions.learning-api]
+verify_jwt = false
