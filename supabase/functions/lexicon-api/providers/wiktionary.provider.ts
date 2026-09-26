@@ -66,6 +66,13 @@ export class WiktionaryProvider implements LexiconProvider {
 
   async search(request: LexiconSearchRequest): Promise<LexiconSearchResult[]> {
     const language = this.languageCode(request.sourceLanguage);
+    let exactResult: LexiconSearchResult | null = null;
+    try {
+      const exact = await this.getDetails({ ...request, term: request.query });
+      if (exact.senses.length) exactResult = exact;
+    } catch {
+      // Search suggestions remain useful when the exact page does not exist.
+    }
     const url = new URL(`https://${language}.wiktionary.org/w/api.php`);
     url.searchParams.set("action", "query");
     url.searchParams.set("list", "search");
@@ -73,7 +80,13 @@ export class WiktionaryProvider implements LexiconProvider {
     url.searchParams.set("srlimit", "20");
     url.searchParams.set("format", "json");
     url.searchParams.set("origin", "*");
-    const payload = await this.fetchJson<SearchApiResponse>(url);
+    let payload: SearchApiResponse;
+    try {
+      payload = await this.fetchJson<SearchApiResponse>(url);
+    } catch (error) {
+      if (exactResult) return [exactResult];
+      throw error;
+    }
     const titles = payload.query?.search?.map((item) => item.title) ?? [];
     const queryKey = normalizeTerm(request.query, request.sourceLanguage);
     const prioritizedTitles = [
@@ -86,18 +99,30 @@ export class WiktionaryProvider implements LexiconProvider {
     ];
     const detailed: LexiconSearchResult[] = [];
     for (const term of prioritizedTitles.slice(0, 4)) {
+      if (
+        exactResult &&
+        normalizeTerm(term, request.sourceLanguage) === queryKey
+      ) {
+        detailed.push(exactResult);
+        continue;
+      }
       try {
         detailed.push(await this.getDetails({ ...request, term }));
       } catch {
         detailed.push(this.emptyResult(term, request));
       }
     }
-    return [
+    const results = [
       ...detailed,
       ...prioritizedTitles.slice(4).map((term) =>
         this.emptyResult(term, request)
       ),
     ];
+    return exactResult && !results.some((result) =>
+      result.normalizedTerm === exactResult?.normalizedTerm
+    )
+      ? [exactResult, ...results]
+      : results;
   }
 
   async getDetails(

@@ -320,7 +320,7 @@ function hasUsableCachedSearch(
   }
   const results = (value as { results?: unknown }).results;
   if (!Array.isArray(results)) return false;
-  if (results.length === 0) return true;
+  if (results.length === 0) return false;
   return results.some((result) => {
     if (!result || typeof result !== "object") return false;
     const senses = (result as { senses?: unknown }).senses;
