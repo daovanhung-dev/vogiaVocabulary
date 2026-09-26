@@ -31,6 +31,12 @@ interface DefinitionEntry {
 
 type DefinitionResponse = Record<string, DefinitionEntry[]>;
 
+interface ParseResponse {
+  parse?: {
+    wikitext?: { "*"?: string };
+  };
+}
+
 export class WiktionaryProvider implements LexiconProvider {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
 
@@ -45,18 +51,28 @@ export class WiktionaryProvider implements LexiconProvider {
     url.searchParams.set("origin", "*");
     const payload = await this.fetchJson<SearchApiResponse>(url);
     const titles = payload.query?.search?.map((item) => item.title) ?? [];
-    const detailed = await Promise.all(
-      titles.slice(0, 8).map(async (term) => {
-        try {
-          return await this.getDetails({ ...request, term });
-        } catch {
-          return this.emptyResult(term, request);
-        }
-      }),
-    );
+    const queryKey = normalizeTerm(request.query, request.sourceLanguage);
+    const prioritizedTitles = [
+      ...titles.filter((term) =>
+        normalizeTerm(term, request.sourceLanguage) === queryKey
+      ),
+      ...titles.filter((term) =>
+        normalizeTerm(term, request.sourceLanguage) !== queryKey
+      ),
+    ];
+    const detailed: LexiconSearchResult[] = [];
+    for (const term of prioritizedTitles.slice(0, 4)) {
+      try {
+        detailed.push(await this.getDetails({ ...request, term }));
+      } catch {
+        detailed.push(this.emptyResult(term, request));
+      }
+    }
     return [
       ...detailed,
-      ...titles.slice(8).map((term) => this.emptyResult(term, request)),
+      ...prioritizedTitles.slice(4).map((term) =>
+        this.emptyResult(term, request)
+      ),
     ];
   }
 
@@ -64,12 +80,23 @@ export class WiktionaryProvider implements LexiconProvider {
     request: LexiconSearchRequest & { term: string },
   ): Promise<LexiconSearchResult> {
     const language = this.languageCode(request.sourceLanguage);
-    const url = new URL(
-      `https://${language}.wiktionary.org/api/rest_v1/page/definition/${
-        encodeURIComponent(request.term)
-      }`,
-    );
-    const payload = await this.fetchJson<DefinitionResponse>(url);
+    let payload: DefinitionResponse | ParseResponse;
+    try {
+      const url = new URL(
+        `https://${language}.wiktionary.org/api/rest_v1/page/definition/${
+          encodeURIComponent(request.term)
+        }`,
+      );
+      payload = await this.fetchJson<DefinitionResponse>(url);
+    } catch (error) {
+      if (language !== "ja" || !isDefinitionFallbackError(error)) throw error;
+      payload = await this.fetchJapaneseWikitext(request);
+    }
+
+    if (isParseResponse(payload)) {
+      return this.fromJapaneseWikitext(request, language, payload);
+    }
+
     const entries = payload[language] ?? Object.values(payload)[0] ?? [];
     const senses: ProviderSense[] = [];
     entries.forEach((entry) => {
@@ -84,7 +111,9 @@ export class WiktionaryProvider implements LexiconProvider {
             index,
             [
               ...(definition.examples ?? []),
-              ...(definition.parsedExamples ?? []).map((example) => example.example ?? ""),
+              ...(definition.parsedExamples ?? []).map((example) =>
+                example.example ?? ""
+              ),
             ],
           );
         });
@@ -114,6 +143,79 @@ export class WiktionaryProvider implements LexiconProvider {
         encodeURIComponent(request.term)
       }`,
       sourcePayload: payload,
+      senses: senses.slice(0, 12),
+    };
+  }
+
+  private async fetchJapaneseWikitext(
+    request: LexiconSearchRequest & { term: string },
+  ): Promise<ParseResponse> {
+    const url = new URL("https://ja.wiktionary.org/w/api.php");
+    url.searchParams.set("action", "parse");
+    url.searchParams.set("page", request.term);
+    url.searchParams.set("prop", "wikitext");
+    url.searchParams.set("format", "json");
+    url.searchParams.set("origin", "*");
+    return await this.fetchJson<ParseResponse>(url);
+  }
+
+  private fromJapaneseWikitext(
+    request: LexiconSearchRequest & { term: string },
+    language: string,
+    payload: ParseResponse,
+  ): LexiconSearchResult {
+    const wikitext = payload.parse?.wikitext?.["*"] ?? "";
+    const senses: ProviderSense[] = [];
+    const lines = wikitext.split(/\r?\n/u);
+    let inJapaneseSection = false;
+    let inDefinitionSection = false;
+    let orderIndex = 0;
+    const examples: string[] = [];
+
+    for (const line of lines) {
+      if (/^==[^=].*[^=]==$/u.test(line)) {
+        inJapaneseSection = /^==[^=]*\{\{L\|ja\}\}[^=]*==$/u.test(line);
+        inDefinitionSection = false;
+        continue;
+      }
+      if (!inJapaneseSection) continue;
+      if (/^===+.*===+$/u.test(line)) {
+        inDefinitionSection = !/\{\{(pron|alter|etym|syn|rel|trans|conjug)\b/u
+          .test(line);
+        continue;
+      }
+      if (!inDefinitionSection) continue;
+      if (/^#\s*/u.test(line) && !/^##/u.test(line)) {
+        const definition = stripWikiText(line.replace(/^#\s*/u, ""));
+        if (definition) {
+          senses.push(
+            this.buildSense(
+              request,
+              null,
+              definition,
+              orderIndex++,
+              examples.splice(0),
+            ),
+          );
+        }
+      } else if (/^#[*:]+\s*/u.test(line)) {
+        const example = stripWikiText(line.replace(/^#[*:]+\s*/u, ""));
+        if (example) examples.push(example);
+      }
+    }
+
+    return {
+      term: request.term,
+      normalizedTerm: normalizeTerm(request.term, request.sourceLanguage),
+      languageCode: request.sourceLanguage,
+      romanization: null,
+      phonetic: null,
+      audioUrl: null,
+      source: "wiktionary",
+      sourceReference: `https://${language}.wiktionary.org/wiki/${
+        encodeURIComponent(request.term)
+      }`,
+      sourcePayload: payload as Record<string, unknown>,
       senses: senses.slice(0, 12),
     };
   }
@@ -148,12 +250,20 @@ export class WiktionaryProvider implements LexiconProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await this.fetchImpl(url, {
-        headers: { accept: "application/json" },
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`LEXICON_PROVIDER_${response.status}`);
-      return await response.json() as T;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const response = await this.fetchImpl(url, {
+          headers: { accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (response.ok) return await response.json() as T;
+        if (response.status !== 429 || attempt === 2) {
+          throw new Error(`LEXICON_PROVIDER_${response.status}`);
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, 250 * (attempt + 1))
+        );
+      }
+      throw new Error("LEXICON_PROVIDER_FAILED");
     } finally {
       clearTimeout(timeout);
     }
@@ -169,7 +279,25 @@ export class WiktionaryProvider implements LexiconProvider {
   ): void {
     const definition = stripWikiText(rawDefinition ?? "");
     if (!definition) return;
-    senses.push({
+    senses.push(
+      this.buildSense(
+        request,
+        partOfSpeech,
+        definition,
+        orderIndex,
+        rawExamples,
+      ),
+    );
+  }
+
+  private buildSense(
+    request: LexiconSearchRequest & { term: string },
+    partOfSpeech: string | null,
+    definition: string,
+    orderIndex: number,
+    rawExamples: string[],
+  ): ProviderSense {
+    return {
       partOfSpeech,
       definition,
       definitionLanguageCode: request.sourceLanguage,
@@ -181,18 +309,36 @@ export class WiktionaryProvider implements LexiconProvider {
         source: "wiktionary-gloss",
         confidence: 0.55,
       }],
-      examples: rawExamples.map(stripWikiText).filter(Boolean).map((sentence) => ({
+      examples: rawExamples.map(stripWikiText).filter(Boolean).map((
+        sentence,
+      ) => ({
         sentence,
         sentenceTranslation: null,
         languageCode: request.sourceLanguage,
         source: "wiktionary",
       })),
-    });
+    };
   }
+}
+
+function isDefinitionFallbackError(error: unknown): boolean {
+  return error instanceof Error &&
+    /LEXICON_PROVIDER_(404|501)/u.test(error.message);
+}
+
+function isParseResponse(
+  payload: DefinitionResponse | ParseResponse,
+): payload is ParseResponse {
+  return typeof payload === "object" && payload !== null && "parse" in payload;
 }
 
 function stripWikiText(value: string): string {
   return value
+    .replace(/<!--.*?-->/gu, " ")
+    .replace(/\{\{[^{}]*\}\}/gu, " ")
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/gu, "$2")
+    .replace(/\[\[([^\]]+)\]\]/gu, "$1")
+    .replace(/'{2,}/gu, "")
     .replace(/<[^>]*>/gu, " ")
     .replace(/&nbsp;/gu, " ")
     .replace(/&amp;/gu, "&")

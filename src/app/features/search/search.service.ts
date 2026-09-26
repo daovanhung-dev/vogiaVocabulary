@@ -21,7 +21,7 @@ export class SearchService {
     const { data, error } = await this.supabase.requiredClient.functions.invoke<SearchResponse>('lexicon-api', {
       body: { route: 'search', ...request },
     });
-    if (error) throw toLexiconError(error);
+    if (error) throw await toLexiconError(error);
     const results = Array.isArray(data) ? data : data?.results ?? [];
     return this.localRank(results, request.query);
   }
@@ -30,7 +30,7 @@ export class SearchService {
     const { data, error } = await this.supabase.requiredClient.functions.invoke<BatchResponse>('lexicon-api', {
       body: { route: 'search-batch', queries, sourceLanguage, targetLanguage },
     });
-    if (error) throw toLexiconError(error);
+    if (error) throw await toLexiconError(error);
     return Array.isArray(data) ? Object.fromEntries(queries.map((query, index) => [query, data[index] ?? []])) : data?.results ?? {};
   }
 
@@ -38,7 +38,7 @@ export class SearchService {
     const { data, error } = await this.supabase.requiredClient.functions.invoke<ImportResult>('lexicon-api', {
       body: { route: 'import', deckId, items },
     });
-    if (error) throw toLexiconError(error);
+    if (error) throw await toLexiconError(error);
     return data ?? { inserted: 0, duplicate: 0, failed: items.length };
   }
 

@@ -13,9 +13,15 @@ import {
   LexiconSearchResult,
 } from "./providers/provider.interface.ts";
 import { WiktionaryProvider } from "./providers/wiktionary.provider.ts";
+import {
+  LexiconRequestError,
+  normalizeLanguageCode,
+  validateDeckLanguage,
+  validateTermLanguage,
+} from "./services/language-compat.ts";
 
 const provider = new WiktionaryProvider();
-const WIKTIONARY_CACHE_PROVIDER = "wiktionary-v2";
+const WIKTIONARY_CACHE_PROVIDER = "wiktionary-v4";
 
 Deno.serve(async (request: Request) => {
   const id = requestId();
@@ -52,6 +58,7 @@ Deno.serve(async (request: Request) => {
           400,
         );
       }
+      validateTermLanguage(query, sourceLanguage, targetLanguage);
       const searchRequest: LexiconSearchRequest = {
         query,
         sourceLanguage,
@@ -70,9 +77,14 @@ Deno.serve(async (request: Request) => {
       ).eq("language_code", sourceLanguage).eq(
         "target_language_code",
         targetLanguage,
-      ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt("expires_at", new Date().toISOString())
+      ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt(
+        "expires_at",
+        new Date().toISOString(),
+      )
         .maybeSingle();
-      if (cached.data?.result) return jsonResponse(cached.data.result);
+      if (hasUsableCachedSearch(cached.data?.result)) {
+        return jsonResponse(cached.data?.result);
+      }
 
       const results = await provider.search(searchRequest);
       const payload = { results };
@@ -98,6 +110,7 @@ Deno.serve(async (request: Request) => {
       const targetLanguage = String(body["targetLanguage"] ?? "vi");
       const results: Record<string, LexiconSearchResult[]> = {};
       for (const query of queries) {
+        validateTermLanguage(query, sourceLanguage, targetLanguage);
         results[query] = await searchWithCache(admin, {
           query,
           sourceLanguage,
@@ -145,10 +158,12 @@ Deno.serve(async (request: Request) => {
           language,
         ) => [language.id, language.code]),
       );
-      const deckSourceLanguage =
-        languageCodes.get(ownership.data.source_language_id) ?? "en";
-      const deckTargetLanguage =
-        languageCodes.get(ownership.data.target_language_id) ?? "vi";
+      const deckSourceLanguage = normalizeLanguageCode(
+        languageCodes.get(ownership.data.source_language_id) ?? "en",
+      );
+      const deckTargetLanguage = normalizeLanguageCode(
+        languageCodes.get(ownership.data.target_language_id) ?? "vi",
+      );
       const items = [];
       for (const raw of rawItems) {
         const item = raw as Record<string, unknown>;
@@ -161,19 +176,37 @@ Deno.serve(async (request: Request) => {
         );
         const term = String(item["term"] ?? "").trim();
         if (!term) continue;
+        validateDeckLanguage(
+          sourceLanguage,
+          deckSourceLanguage,
+          "source language",
+        );
+        validateDeckLanguage(
+          targetLanguage,
+          deckTargetLanguage,
+          "target language",
+        );
+        validateTermLanguage(term, deckSourceLanguage, deckTargetLanguage);
         const detailed = Array.isArray(item["senses"]) && item["senses"].length
           ? item
-          : await provider.getDetails({
-            query: term,
-            sourceLanguage,
-            targetLanguage,
+          : await getImportDetails(
+            provider,
             term,
-          });
+            deckSourceLanguage,
+            deckTargetLanguage,
+          );
+        if (!Array.isArray(detailed.senses) || detailed.senses.length === 0) {
+          throw new LexiconRequestError(
+            "DETAILS_UNAVAILABLE",
+            `No definition is available for “${term}” in the selected deck language.`,
+            422,
+          );
+        }
         items.push({
           ...detailed,
-          languageCode: sourceLanguage,
-          targetLanguageCode: targetLanguage,
-          normalizedTerm: normalizeTerm(term, sourceLanguage),
+          languageCode: deckSourceLanguage,
+          targetLanguageCode: deckTargetLanguage,
+          normalizedTerm: normalizeTerm(term, deckSourceLanguage),
         });
       }
       const { data, error } = await admin.rpc("import_vocabulary_batch", {
@@ -192,6 +225,9 @@ Deno.serve(async (request: Request) => {
       400,
     );
   } catch (error) {
+    if (error instanceof LexiconRequestError) {
+      return errorResponse(error.code, error.message, id, error.status);
+    }
     const message = error instanceof Error
       ? error.message
       : "Lexicon request failed.";
@@ -228,12 +264,14 @@ async function searchWithCache(
   ).eq("language_code", request.sourceLanguage).eq(
     "target_language_code",
     request.targetLanguage,
-  ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt("expires_at", new Date().toISOString())
+  ).eq("provider", WIKTIONARY_CACHE_PROVIDER).gt(
+    "expires_at",
+    new Date().toISOString(),
+  )
     .maybeSingle();
-  if (
-    cached.data?.result && typeof cached.data.result === "object" &&
-    "results" in cached.data.result
-  ) return (cached.data.result as { results: LexiconSearchResult[] }).results;
+  if (hasUsableCachedSearch(cached.data?.result)) {
+    return (cached.data?.result as { results: LexiconSearchResult[] }).results;
+  }
   const results = await provider.search(request);
   await admin.from("lexicon_cache").upsert({
     query: cacheKey,
@@ -244,4 +282,52 @@ async function searchWithCache(
     expires_at: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
   }, { onConflict: "query,language_code,target_language_code,provider" });
   return results;
+}
+
+async function getImportDetails(
+  provider: WiktionaryProvider,
+  term: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+): Promise<LexiconSearchResult> {
+  try {
+    return await provider.getDetails({
+      query: term,
+      sourceLanguage,
+      targetLanguage,
+      term,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /LEXICON_PROVIDER_(404|501)/u.test(error.message)
+    ) {
+      throw new LexiconRequestError(
+        "DETAILS_UNAVAILABLE",
+        `No definition is available for “${term}” in the selected deck language.`,
+        422,
+      );
+    }
+    throw error;
+  }
+}
+
+function hasUsableCachedSearch(
+  value: unknown,
+): value is { results: LexiconSearchResult[] } {
+  if (!value || typeof value !== "object" || !("results" in value)) {
+    return false;
+  }
+  const results = (value as { results?: unknown }).results;
+  if (!Array.isArray(results)) return false;
+  if (results.length === 0) return true;
+  return results.some((result) => {
+    if (!result || typeof result !== "object") return false;
+    const senses = (result as { senses?: unknown }).senses;
+    return Array.isArray(senses) && senses.some((sense) => {
+      if (!sense || typeof sense !== "object") return false;
+      const definition = (sense as { definition?: unknown }).definition;
+      return typeof definition === "string" && definition.trim().length > 0;
+    });
+  });
 }

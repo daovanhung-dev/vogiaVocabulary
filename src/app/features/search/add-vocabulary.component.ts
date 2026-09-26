@@ -16,6 +16,7 @@ import { DeckService } from '../decks/deck.service';
 import { SearchService } from './search.service';
 import { SupabaseService } from '../../core/supabase/supabase.service';
 import { parseBatchInput } from '../../shared/utils/normalize';
+import { hasImportableDefinition, languageMismatchMessage } from '../../shared/utils/language-compat';
 
 @Component({
   selector: 'gv-add-vocabulary',
@@ -34,13 +35,13 @@ import { parseBatchInput } from '../../shared/utils/normalize';
 
       <section class="results panel" *ngIf="results().length || loading; else searchHint">
         <div class="results-header"><div><p class="eyebrow">Search results</p><h2>{{ results().length }} candidates</h2></div><mat-spinner *ngIf="loading" diameter="28"></mat-spinner></div>
-        <button class="result-row" type="button" *ngFor="let result of results()" (click)="toggle(result)" [class.selected]="isSelected(result)">
-          <mat-checkbox [checked]="isSelected(result)" (click)="$event.stopPropagation()" (change)="toggle(result)"></mat-checkbox>
+        <button class="result-row" type="button" *ngFor="let result of results()" (click)="toggle(result)" [class.selected]="isSelected(result)" [disabled]="!canImport(result)">
+          <mat-checkbox [checked]="isSelected(result)" [disabled]="!canImport(result)" (click)="$event.stopPropagation()" (change)="toggle(result)"></mat-checkbox>
           <span class="result-main"><strong>{{ result.term }}</strong><small *ngIf="result.romanization">{{ result.romanization }}</small></span>
           <span class="result-meaning">{{ meaning(result) }}</span>
           <mat-icon>{{ isSelected(result) ? 'check_circle' : 'add_circle_outline' }}</mat-icon>
         </button>
-        <div class="import-bar" *ngIf="selectedCount"><span>{{ selectedCount }} words ready to add</span><button mat-flat-button color="primary" (click)="importSelected()" [disabled]="importing">{{ importing ? 'Adding…' : 'Add selected' }}</button></div>
+        <div class="import-bar" *ngIf="selectedCount"><span>{{ selectedCount }} words ready to add</span><button mat-flat-button color="primary" (click)="importSelected()" [disabled]="importing || !selectedCount">{{ importing ? 'Adding…' : 'Add selected' }}</button></div>
       </section>
       <ng-template #searchHint><div class="panel empty-state"><mat-icon>travel_explore</mat-icon><h3>Search for your next word.</h3><p>Remote search is debounced and cached by the lexicon Edge Function.</p></div></ng-template>
     </div>
@@ -56,6 +57,8 @@ import { parseBatchInput } from '../../shared/utils/normalize';
     .results-header h2 { margin: 0; }
     .result-row { display: grid; grid-template-columns: 40px minmax(130px, .65fr) minmax(0, 1fr) 30px; gap: 12px; align-items: center; width: 100%; padding: 16px 24px; border: 0; border-bottom: 1px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
     .result-row:hover, .result-row.selected { background: #f1f8fa; }
+    .result-row:disabled { background: #fafafa; color: var(--muted); cursor: not-allowed; }
+    .result-row:disabled .result-meaning { color: #9b6b00; }
     .result-main { display: grid; gap: 3px; }
     .result-main small, .result-meaning { color: var(--muted); }
     .result-meaning { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -96,6 +99,13 @@ export class AddVocabularyComponent implements OnInit {
       switchMap((query) => {
         this.loading = true;
         this.errorMessage = '';
+        this.results.set([]);
+        this.selected.set({});
+        const mismatch = languageMismatchMessage(query, this.sourceCode, this.targetCode);
+        if (mismatch) {
+          this.errorMessage = mismatch;
+          return of([]);
+        }
         return from(this.searchService.search({ query, sourceLanguage: this.sourceCode, targetLanguage: this.targetCode })).pipe(
           catchError((error: unknown) => { this.errorMessage = error instanceof Error ? error.message : 'Search failed.'; return of([]); }),
         );
@@ -110,8 +120,17 @@ export class AddVocabularyComponent implements OnInit {
   async runBatch(): Promise<void> {
     const queries = parseBatchInput(this.batchControl.value);
     if (!queries.length) return;
+    const mismatch = queries.map((query) => languageMismatchMessage(query, this.sourceCode, this.targetCode)).find(Boolean);
+    if (mismatch) {
+      this.results.set([]);
+      this.selected.set({});
+      this.errorMessage = mismatch;
+      return;
+    }
     this.loading = true;
     this.errorMessage = '';
+    this.results.set([]);
+    this.selected.set({});
     try {
       const grouped = await this.searchService.searchBatch(queries, this.sourceCode, this.targetCode);
       const batchResults = queries.flatMap((query) => grouped[query] ?? []);
@@ -124,6 +143,7 @@ export class AddVocabularyComponent implements OnInit {
   }
 
   toggle(result: LexiconSearchResult): void {
+    if (!this.canImport(result)) return;
     const next = { ...this.selected() };
     if (next[result.normalizedTerm]) delete next[result.normalizedTerm];
     else next[result.normalizedTerm] = result;
@@ -132,17 +152,25 @@ export class AddVocabularyComponent implements OnInit {
 
   isSelected(result: LexiconSearchResult): boolean { return Boolean(this.selected()[result.normalizedTerm]); }
 
+  canImport(result: LexiconSearchResult): boolean {
+    return hasImportableDefinition(result);
+  }
+
   meaning(result: LexiconSearchResult): string {
-    return result.senses?.[0]?.translations?.[0]?.translation || result.senses?.[0]?.definition || 'Details available on import';
+    return result.senses?.[0]?.translations?.[0]?.translation || result.senses?.[0]?.definition || 'No definition available for this language';
   }
 
   async importSelected(): Promise<void> {
     const deckId = this.route.snapshot.paramMap.get('deckId');
-    if (!deckId || !this.selectedCount) return;
+    const items = Object.values(this.selected()).filter((item) => this.canImport(item));
+    if (!deckId || !items.length) {
+      this.errorMessage = 'Select a vocabulary item with a definition before adding it.';
+      return;
+    }
     this.importing = true;
     this.errorMessage = '';
     try {
-      await this.searchService.importSelected(deckId, Object.values(this.selected()));
+      await this.searchService.importSelected(deckId, items);
       await this.router.navigate(['/decks', deckId, 'vocabulary']);
     } catch (error) {
       this.errorMessage = error instanceof Error ? error.message : 'Import failed.';
