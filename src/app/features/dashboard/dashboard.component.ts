@@ -14,12 +14,13 @@ import { DeckService } from '../decks/deck.service';
   template: `
     <div class="page">
       <section class="hero panel">
-        <div>
-          <p class="eyebrow">Your learning loop</p>
-          <h1>Make room for one more word.</h1>
-          <p class="muted">Your personal workspace is ready. Keep your next review small and consistent.</p>
+        <div class="hero-copy">
+          <p class="eyebrow"><mat-icon>auto_awesome</mat-icon>Your learning loop</p>
+          <h1>Make room for <span>one more word.</span></h1>
+          <p class="muted">Every small practice session adds up. Choose a deck or make a new one to begin.</p>
+          <a mat-flat-button color="primary" routerLink="/decks"><mat-icon>add</mat-icon>Explore your decks</a>
         </div>
-        <a mat-flat-button color="primary" routerLink="/decks"><mat-icon>add</mat-icon>Manage decks</a>
+        <div class="hero-art" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="sparkle sparkle-one">✦</span><span class="sparkle sparkle-two">✧</span><span class="mascot mascot-float"><i></i><i></i><b></b></span><span class="art-caption">Keep it curious!</span></div>
       </section>
 
       <section class="grid grid-3 metric-grid">
@@ -42,13 +43,30 @@ import { DeckService } from '../decks/deck.service';
     </div>
   `,
   styles: [`
-    .hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 36px; margin-bottom: 24px; background: linear-gradient(135deg, #edf6f8, #fff8e5); }
-    .hero h1 { max-width: 560px; margin: 0 0 12px; font-size: clamp(2.2rem, 5vw, 4rem); letter-spacing: -.05em; line-height: 1; }
-    .metric-grid mat-card { padding: 20px; }
-    .metric-grid mat-card-title { margin: 10px 0 4px; font-size: 2.3rem; }
+    .hero { position: relative; display: flex; min-height: 285px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; padding: 38px 46px; margin-bottom: 24px; background: radial-gradient(ellipse at 84% 44%, rgba(255,255,255,.88), transparent 34%), linear-gradient(120deg, #e4f7f1 0%, #f1fbf8 52%, #fff4da 100%); }
+    .hero-copy { position: relative; z-index: 1; max-width: 630px; }
+    .hero .eyebrow { display: flex; align-items: center; gap: 6px; }
+    .hero .eyebrow mat-icon { width: 17px; height: 17px; color: #e9a900; font-size: 17px; }
+    .hero h1 { max-width: 600px; margin: 0 0 13px; font-size: clamp(2.2rem, 4.7vw, 3.7rem); letter-spacing: -.06em; line-height: 1.03; }
+    .hero h1 span { color: var(--brand-strong); }
+    .hero .muted { max-width: 490px; margin: 0 0 22px; font-size: 1rem; line-height: 1.6; }
+    .hero-art { position: relative; display: grid; width: 255px; height: 200px; flex: 0 0 255px; place-items: center; }
+    .orbit { position: absolute; width: 184px; height: 184px; border: 1px dashed rgba(13,148,136,.23); border-radius: 50%; }
+    .orbit-two { width: 140px; height: 140px; border-style: solid; border-color: rgba(13,148,136,.1); }
+    .mascot { position: relative; display: flex; width: 104px; height: 88px; align-items: center; justify-content: center; gap: 15px; border: 4px solid rgba(255,255,255,.9); border-radius: 50% 50% 46% 46%; background: linear-gradient(145deg, #69d9c7, #21a99b); box-shadow: 0 14px 30px rgba(13,148,136,.25), inset 0 -9px rgba(7,118,110,.13); }
+    .mascot i { width: 9px; height: 13px; border-radius: 50%; background: #15434a; }
+    .mascot b { position: absolute; right: 16px; bottom: 24px; width: 13px; height: 7px; border-bottom: 2px solid #15434a; border-radius: 50%; }
+    .sparkle { position: absolute; color: #eeae00; font-size: 27px; }
+    .sparkle-one { top: 23px; right: 35px; }
+    .sparkle-two { bottom: 43px; left: 16px; color: var(--coral); }
+    .art-caption { position: absolute; right: -2px; bottom: 3px; padding: 7px 11px; transform: rotate(-4deg); border: 1px solid #f0dfa6; border-radius: 10px; background: #fff8df; color: #745b07; font-size: .72rem; font-weight: 800; }
+    .metric-grid mat-card { padding: 21px; }
+    .metric-grid mat-card-subtitle { color: var(--muted); font-weight: 700; }
+    .metric-grid mat-card-title { margin: 10px 0 4px; color: var(--brand-deep); font-size: 2.25rem; font-weight: 900; }
     .section-header { margin-top: 40px; }
     .deck-card mat-card-content { min-height: 72px; }
-    @media (max-width: 650px) { .hero { align-items: flex-start; flex-direction: column; padding: 24px; } }
+    .deck-card mat-card-header mat-icon[mat-card-avatar] { display: grid; place-items: center; border-radius: 14px; background: var(--surface-mint); color: var(--brand); }
+    @media (max-width: 700px) { .hero { min-height: auto; padding: 26px; } .hero-art { position: absolute; right: -39px; bottom: -49px; transform: scale(.76); opacity: .36; } .hero-copy { max-width: 100%; } }
   `],
 })
 export class DashboardComponent implements OnInit {

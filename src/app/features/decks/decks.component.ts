@@ -20,12 +20,12 @@ import { differentLanguagesValidator } from '../../shared/utils/language-validat
   imports: [CommonModule, ReactiveFormsModule, RouterLink, MatButtonModule, MatCardModule, MatFormFieldModule, MatIconModule, MatInputModule, MatProgressSpinnerModule, MatSelectModule],
   template: `
     <div class="page">
-      <div class="page-header"><div><p class="eyebrow">Vocabulary spaces</p><h1>My decks</h1><p class="muted">Keep each learning goal small enough to return to.</p></div><span class="status-chip">{{ loadingDecks ? 'Loading…' : decks().length + ' active' }}</span></div>
+      <div class="page-header"><div><p class="eyebrow">Your word worlds</p><h1>My decks</h1><p class="muted">Keep each learning goal small enough to come back to.</p></div><span class="status-chip">{{ loadingDecks ? 'Loading…' : decks().length + (decks().length === 1 ? ' active deck' : ' active decks') }}</span></div>
       <div class="grid grid-2 layout-grid">
         <section class="panel panel-content create-panel">
           <div class="card-header"><div><h2>{{ editingId ? 'Edit deck' : 'Create a deck' }}</h2><p class="muted">Choose the direction you want to practise.</p></div><mat-icon>{{ editingId ? 'edit' : 'add_circle' }}</mat-icon></div>
           <form [formGroup]="form" (ngSubmit)="createDeck()" class="form-grid">
-            <mat-form-field appearance="outline"><mat-label>Deck name</mat-label><input matInput formControlName="name" placeholder="Japanese N5" /></mat-form-field>
+            <mat-form-field appearance="outline"><mat-label>Deck name</mat-label><input matInput maxlength="80" formControlName="name" placeholder="Japanese N5" aria-describedby="deck-name-hint" /><mat-hint id="deck-name-hint" align="end">{{ form.controls.name.value.length }}/80</mat-hint><mat-error *ngIf="form.controls.name.hasError('required')">Give your deck a name.</mat-error><mat-error *ngIf="form.controls.name.hasError('maxlength')">Deck names can be up to 80 characters.</mat-error></mat-form-field>
             <mat-form-field appearance="outline"><mat-label>Description</mat-label><textarea matInput rows="2" formControlName="description" placeholder="Words for my next trip"></textarea></mat-form-field>
             <div class="grid grid-2">
               <mat-form-field appearance="outline"><mat-label>Learning language</mat-label><mat-select formControlName="sourceLanguageId"><mat-option *ngFor="let language of languages()" [value]="language.id">{{ language.name }}</mat-option></mat-select></mat-form-field>
@@ -41,7 +41,7 @@ import { differentLanguagesValidator } from '../../shared/utils/language-validat
           <mat-card *ngFor="let deck of decks()" class="deck-row">
             <mat-card-header><mat-icon mat-card-avatar>style</mat-icon><mat-card-title>{{ deck.name }}</mat-card-title><mat-card-subtitle>{{ languageName(deck.source_language_id) }} → {{ languageName(deck.target_language_id) }}</mat-card-subtitle></mat-card-header>
             <mat-card-content><p>{{ deck.description || 'No description yet.' }}</p></mat-card-content>
-            <mat-card-actions><a mat-button color="primary" [routerLink]="['/decks', deck.id]">Open</a><a mat-button [routerLink]="['/decks', deck.id, 'add']">Add words</a><button mat-button type="button" (click)="startEdit(deck)">Edit</button><button mat-button color="warn" type="button" (click)="archiveDeck(deck)">Archive</button></mat-card-actions>
+            <mat-card-actions><a mat-button color="primary" [routerLink]="['/decks', deck.id]">Open deck</a><a mat-button [routerLink]="['/decks', deck.id, 'add']">Add words</a><button mat-button type="button" (click)="startEdit(deck)">Edit</button><button mat-button color="warn" type="button" (click)="archiveDeck(deck)">Archive</button></mat-card-actions>
           </mat-card>
           <div class="panel empty-state" *ngIf="!loadingDecks && !decks().length"><mat-icon>style</mat-icon><p>No decks yet. Create one to get started.</p></div>
         </section>
@@ -54,6 +54,10 @@ import { differentLanguagesValidator } from '../../shared/utils/language-validat
     .form-actions { display: flex; align-items: center; gap: 8px; }
     .deck-list { display: grid; gap: 16px; }
     .deck-row mat-card-content { min-height: 50px; }
+    .deck-list > mat-card { animation: card-enter .4s cubic-bezier(.2,.8,.2,1) both; }
+    .deck-list > mat-card:nth-of-type(2) { animation-delay: .06s; }
+    .deck-list > mat-card:nth-of-type(3) { animation-delay: .12s; }
+    .deck-list > mat-card:nth-of-type(4) { animation-delay: .18s; }
     @media (max-width: 800px) { .create-panel { position: static; } }
   `],
 })

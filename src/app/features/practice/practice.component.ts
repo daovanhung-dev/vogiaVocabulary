@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, DestroyRef, inject, OnInit, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
@@ -10,6 +10,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { combineLatest, distinctUntilChanged, map } from 'rxjs';
 import {
   DeckItem,
   ExerciseDifficulty,
@@ -75,7 +77,7 @@ const MODE_OPTIONS: ModeOption[] = [
         <p class="muted">Loading your vocabulary…</p>
       </section>
 
-      <ng-container *ngIf="!loading && phase === 'setup'">
+      <ng-container *ngIf="!loading && phase === 'setup' && !deckMissing && deckItems().length">
         <section class="page-header"><div><p class="eyebrow">AI practice studio</p><h1>{{ deckName }}</h1><p class="muted">Create a focused set from {{ deckItems().length }} saved words.</p></div><span class="status-chip">10–100 questions</span></section>
         <section class="panel setup-card">
           <div class="setup-grid">
@@ -101,20 +103,22 @@ const MODE_OPTIONS: ModeOption[] = [
           <div class="question-meta"><span class="status-chip">{{ formatType(question.type) }}</span><span class="muted">Focus on recall, not speed.</span></div>
           <h2>{{ question.prompt }}</h2>
           <div class="choices" *ngIf="isChoiceQuestion(question) || question.type === 'matching_pairs'; else answerInput">
-            <button type="button" class="choice" *ngFor="let choice of questionChoices(question)" [class.selected]="selectedAnswer === choice" [disabled]="submitted" (click)="selectedAnswer = choice">{{ choice }}</button>
+            <button type="button" class="choice" *ngFor="let choice of questionChoices(question)" [class.selected]="selectedAnswer === choice" [class.correct-choice]="submitted && choice === question.answer" [class.incorrect-choice]="submitted && selectedAnswer === choice && !lastCorrect" [attr.aria-pressed]="selectedAnswer === choice" [disabled]="submitted" (click)="selectedAnswer = choice">{{ choice }}</button>
           </div>
           <ng-template #answerInput><mat-form-field appearance="outline" class="full-width" *ngIf="question.type !== 'flashcard'; else flashcardPrompt"><mat-label>Your answer</mat-label><input matInput [formControl]="answerControl" (keyup.enter)="submitAnswer()" [disabled]="submitted" /></mat-form-field></ng-template>
           <ng-template #flashcardPrompt><div class="flashcard-answer" *ngIf="submitted; else revealPrompt"><strong>{{ question.answer }}</strong><span>{{ question.explanation }}</span></div><ng-template #revealPrompt><p class="muted">Say the answer out loud, then reveal it.</p></ng-template></ng-template>
-          <div class="feedback" *ngIf="submitted" [class.correct]="lastCorrect" [class.incorrect]="!lastCorrect"><mat-icon>{{ lastCorrect ? 'check_circle' : 'error' }}</mat-icon><div><strong>{{ lastCorrect ? 'Correct' : 'Keep this one in your next review.' }}</strong><p>{{ question.explanation }}</p></div></div>
+          <div class="feedback" *ngIf="submitted" [class.correct]="lastCorrect" [class.incorrect]="!lastCorrect" role="status" aria-live="polite"><mat-icon>{{ lastCorrect ? 'check_circle' : 'error' }}</mat-icon><div><strong>{{ lastCorrect ? 'Correct!' : 'Keep this one in your next review.' }}</strong><p>{{ question.explanation }}</p></div></div>
           <div class="question-actions"><button mat-button *ngIf="!submitted && question.type === 'flashcard'" (click)="submitAnswer(question.answer)">Reveal answer</button><button mat-flat-button color="primary" *ngIf="!submitted && question.type !== 'flashcard'" (click)="submitAnswer()" [disabled]="!selectedAnswer && !answerControl.value">Check answer</button><button mat-flat-button color="primary" *ngIf="submitted" (click)="next()">{{ currentIndex + 1 === questions().length ? 'Finish' : 'Next question' }}<mat-icon>arrow_forward</mat-icon></button></div>
         </section>
       </ng-container>
 
       <ng-container *ngIf="!loading && phase === 'complete'">
-        <section class="panel completion"><p class="eyebrow">Session complete</p><h1>Nice work.</h1><p class="muted">You answered {{ correctCount }} of {{ questions().length }} questions correctly.</p><div class="score-ring">{{ score }}%</div><div class="form-actions centered"><button mat-flat-button color="primary" type="button" (click)="resetSetup()">Create another set</button><a mat-stroked-button [routerLink]="['/decks', deckId]">Return to deck</a></div></section>
+        <section class="panel completion"><span class="celebration-spark" aria-hidden="true">✦</span><p class="eyebrow">Session complete</p><h1>Nice work.</h1><p class="muted">You answered {{ correctCount }} of {{ questions().length }} questions correctly.</p><div class="score-ring">{{ score }}%</div><div class="form-actions centered"><button mat-flat-button color="primary" type="button" (click)="resetSetup()">Create another set</button><a mat-stroked-button [routerLink]="['/decks', deckId]">Return to deck</a></div></section>
       </ng-container>
 
-      <section class="panel empty-state" *ngIf="!loading && !deckItems().length"><mat-icon>school</mat-icon><h2>This deck needs a few words first.</h2><p>Add vocabulary, then come back for an AI or deterministic practice session.</p><a mat-flat-button color="primary" [routerLink]="['/decks', deckId, 'add']">Add words</a></section>
+      <section class="panel empty-state" *ngIf="!loading && !deckMissing && setupError && !deckItems().length" role="alert"><mat-icon>cloud_off</mat-icon><h2>Practice could not load.</h2><p>{{ setupError }}</p><a mat-stroked-button [routerLink]="['/decks', deckId]">Back to deck</a></section>
+      <section class="panel empty-state" *ngIf="!loading && !deckMissing && !setupError && !deckItems().length"><mat-icon>school</mat-icon><h2>This deck needs a few words first.</h2><p>Add vocabulary, then come back for an AI or deterministic practice session.</p><a mat-flat-button color="primary" [routerLink]="['/decks', deckId, 'add']">Add words</a></section>
+      <section class="panel empty-state" *ngIf="!loading && deckMissing"><mat-icon>sentiment_dissatisfied</mat-icon><h2>We couldn't find this deck.</h2><p>{{ setupError || 'It may have been archived or is no longer available.' }}</p><a mat-flat-button color="primary" routerLink="/decks">Back to decks</a></section>
     </div>
   `,
   styles: [`
@@ -134,17 +138,20 @@ const MODE_OPTIONS: ModeOption[] = [
     .centered { justify-content: center; }
     .practice-top { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin: 24px 0 16px; }
     .practice-top h1 { margin: 0; font-size: clamp(2.2rem, 5vw, 4rem); letter-spacing: -.06em; }
-    .question-card { max-width: 780px; margin: 28px auto; padding: 32px; }
+    .question-card { max-width: 780px; margin: 28px auto; padding: 32px; animation: card-enter .38s ease both; }
     .question-meta, .question-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .question-card h2 { margin: 40px 0 28px; font-size: clamp(1.6rem, 4vw, 2.6rem); line-height: 1.15; }
     .choices { display: grid; gap: 12px; }
-    .choice { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: white; color: var(--ink); text-align: left; cursor: pointer; }
-    .choice:hover, .choice.selected { border-color: var(--brand); background: #edf6f8; }
+    .choice { min-height: 56px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: white; color: var(--ink); text-align: left; cursor: pointer; transition: transform .16s ease, border-color .16s ease, background .16s ease; }
+    .choice:hover, .choice.selected { transform: translateY(-2px); border-color: var(--brand); background: #edf6f8; }
+    .choice.correct-choice { border-color: #72c497; background: #eaf7ef; color: #145e3c; }
+    .choice.incorrect-choice { border-color: #f0a4ad; background: #fff0f1; color: #8b2637; }
     .feedback { display: flex; gap: 12px; margin: 24px 0; padding: 16px; border-radius: 12px; background: #fff8e5; color: #704f00; }
     .feedback.correct { background: #eaf7ef; color: #167447; }
     .feedback p, .flashcard-answer span { margin: 4px 0 0; color: inherit; opacity: .82; }
     .flashcard-answer { display: grid; gap: 8px; padding: 30px; border-radius: 16px; background: #edf6f8; font-size: 1.3rem; }
-    .completion { max-width: 620px; margin: 80px auto; padding: 44px; text-align: center; }
+    .completion { position: relative; max-width: 620px; margin: 80px auto; padding: 44px; overflow: hidden; text-align: center; animation: celebration-pop .55s cubic-bezier(.2,.8,.2,1) both; }
+    .celebration-spark { position: absolute; top: 17px; right: 24px; color: #e5a900; font-size: 2rem; animation: mascot-float 2.5s ease-in-out infinite; }
     .completion h1 { margin: 0 0 10px; font-size: 3.5rem; letter-spacing: -.06em; }
     .score-ring { display: grid; place-items: center; width: 130px; height: 130px; margin: 28px auto; border: 12px solid var(--accent); border-radius: 50%; font-size: 1.8rem; font-weight: 900; }
     @media (max-width: 800px) { .setup-grid, .mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -163,7 +170,9 @@ export class PracticeComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly deckService = inject(DeckService);
   private readonly practiceService = inject(PracticeService);
+  private readonly destroyRef = inject(DestroyRef);
   loading = true;
+  deckMissing = false;
   generating = false;
   phase: 'setup' | 'session' | 'complete' = 'setup';
   currentIndex = 0;
@@ -178,31 +187,63 @@ export class PracticeComponent implements OnInit {
   source: 'gemini' | 'deterministic' = 'deterministic';
   setupError = '';
   generationWarning = '';
+  private routeRequestVersion = 0;
 
   get deckId(): string { return this.route.snapshot.paramMap.get('deckId') ?? ''; }
   get currentQuestion(): PracticeQuestion | null { return this.questions()[this.currentIndex] ?? null; }
   get progress(): number { return this.questions().length ? ((this.currentIndex + (this.submitted ? 1 : 0)) / this.questions().length) * 100 : 0; }
   get score(): number { return this.questions().length ? Math.round((this.correctCount / this.questions().length) * 100) : 0; }
 
-  async ngOnInit(): Promise<void> {
-    if (!this.deckId) { this.loading = false; return; }
+  ngOnInit(): void {
+    combineLatest([this.route.paramMap, this.route.queryParamMap]).pipe(
+      map(([params, query]) => ({ deckId: params.get('deckId') ?? '', setId: query.get('setId') })),
+      distinctUntilChanged((previous, current) => previous.deckId === current.deckId && previous.setId === current.setId),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(({ deckId, setId }) => { void this.loadRouteState(deckId, setId); });
+  }
+
+  private async loadRouteState(deckId: string, setId: string | null): Promise<void> {
+    const version = ++this.routeRequestVersion;
+    this.loading = true;
+    this.generating = false;
+    this.deckMissing = false;
+    this.deckName = 'Practice';
+    this.deckItems.set([]);
+    this.questions.set([]);
+    this.currentIndex = 0;
+    this.correctCount = 0;
+    this.sessionId = null;
+    this.exerciseSetId = null;
+    this.phase = 'setup';
+    this.submitted = false;
+    this.selectedAnswer = '';
+    this.setupError = '';
+    this.generationWarning = '';
+    if (!deckId) { this.loading = false; this.deckMissing = true; return; }
     try {
-      const deck = await this.deckService.getDeck(this.deckId);
-      this.deckName = deck?.name ?? 'Practice';
-      this.deckItems.set(await this.deckService.listDeckItems(this.deckId));
-      const setId = this.route.snapshot.queryParamMap.get('setId');
-      if (setId) {
-        const set = await this.practiceService.loadSet(setId);
-        await this.startGeneratedPractice(set);
+      const deck = await this.deckService.getDeck(deckId);
+      const items = deck ? await this.deckService.listDeckItems(deckId) : [];
+      if (version !== this.routeRequestVersion) return;
+      if (!deck) {
+        this.deckMissing = true;
+      } else {
+        this.deckName = deck.name;
+        this.deckItems.set(items);
+        if (setId) {
+          const set = await this.practiceService.loadSet(setId);
+          if (version !== this.routeRequestVersion) return;
+          await this.startGeneratedPractice(set, version);
+        }
       }
     } catch (error) {
-      this.setupError = this.toMessage(error, 'Unable to load this practice set.');
+      if (version === this.routeRequestVersion) this.setupError = this.toMessage(error, 'Unable to load this practice set.');
     } finally {
-      this.loading = false;
+      if (version === this.routeRequestVersion) this.loading = false;
     }
   }
 
   async generateAiPractice(): Promise<void> {
+    const routeVersion = this.routeRequestVersion;
     this.setupError = '';
     this.generationWarning = '';
     if (!this.hasUsableVocabulary()) {
@@ -224,11 +265,12 @@ export class PracticeComponent implements OnInit {
         direction: this.directionControl.value,
         title: `${this.deckName} practice`,
       });
-      await this.startGeneratedPractice(response);
+      if (routeVersion !== this.routeRequestVersion) return;
+      await this.startGeneratedPractice(response, routeVersion);
     } catch (error) {
-      this.setupError = this.toMessage(error, 'AI practice could not be generated.');
+      if (routeVersion === this.routeRequestVersion) this.setupError = this.toMessage(error, 'AI practice could not be generated.');
     } finally {
-      this.generating = false;
+      if (routeVersion === this.routeRequestVersion) this.generating = false;
     }
   }
 
@@ -249,7 +291,7 @@ export class PracticeComponent implements OnInit {
       this.setupError = 'Add meanings to at least one word before starting practice.';
       return;
     }
-    await this.startSession(questions, null, 'deterministic');
+    await this.startSession(questions, null, 'deterministic', this.routeRequestVersion);
   }
 
   private hasUsableVocabulary(): boolean {
@@ -318,12 +360,13 @@ export class PracticeComponent implements OnInit {
 
   formatType(type: ExerciseType): string { return this.modeOptions.find((option) => option.value === type)?.label ?? type.replaceAll('_', ' '); }
 
-  private async startGeneratedPractice(response: ExerciseGenerationResponse): Promise<void> {
+  private async startGeneratedPractice(response: ExerciseGenerationResponse, routeVersion: number): Promise<void> {
+    if (routeVersion !== this.routeRequestVersion) return;
     this.generationWarning = response.warning ?? '';
-    await this.startSession(response.questions, response.exerciseSetId, response.source);
+    await this.startSession(response.questions, response.exerciseSetId, response.source, routeVersion);
   }
 
-  private async startSession(questions: PracticeQuestion[], exerciseSetId: string | null, source: 'gemini' | 'deterministic'): Promise<void> {
+  private async startSession(questions: PracticeQuestion[], exerciseSetId: string | null, source: 'gemini' | 'deterministic', routeVersion: number): Promise<void> {
     this.questions.set(questions);
     this.exerciseSetId = exerciseSetId;
     this.source = source;
@@ -333,7 +376,9 @@ export class PracticeComponent implements OnInit {
     this.answerControl.reset('');
     this.submitted = false;
     this.questionStartedAt = Date.now();
-    this.sessionId = questions.length ? await this.practiceService.createSession(this.deckId, questions.length, exerciseSetId ?? undefined) : null;
+    const sessionId = questions.length ? await this.practiceService.createSession(this.deckId, questions.length, exerciseSetId ?? undefined) : null;
+    if (routeVersion !== this.routeRequestVersion) return;
+    this.sessionId = sessionId;
     this.phase = questions.length ? 'session' : 'setup';
   }
 

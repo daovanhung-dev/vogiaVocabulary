@@ -14,3 +14,13 @@ export function parseBatchInput(value: string): string[] {
 
   return Array.from(new Set(tokens.map((token) => normalizeTerm(token))));
 }
+
+export function uniqueByNormalizedTerm<T extends { term: string; normalizedTerm?: string | null }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = normalizeTerm(item.normalizedTerm || item.term);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
